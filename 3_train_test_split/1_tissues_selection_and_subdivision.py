@@ -49,20 +49,20 @@ df_metadata = df_metadata.drop_duplicates(subset=['patient_id', 'phase', 'tissue
 df_metadata = df_metadata.drop(columns=['ext_priority'])
 
 
-""""" tissues single/multiple separation """""
+""""" tissues/phases single/multiple separation """""
 
 patient_phase_counts = df_metadata.groupby('patient_id')['phase'].nunique()
-multiple_tissues_patients = patient_phase_counts[patient_phase_counts > 1].index  # patients with more clinical phases
-df_test_multiple_tissues = df_metadata[df_metadata['patient_id'].isin(multiple_tissues_patients)].copy()
+multiple_phase_patients = patient_phase_counts[patient_phase_counts > 1].index  # patients with more clinical phases
+df_test_multiple_phases = df_metadata[df_metadata['patient_id'].isin(multiple_phase_patients)].copy()
 
 # single samples (for Train/Val/Test)  # TODO check num_samples e cambiare questa logica: train su tutto o in base a fase? Più livelli?
-df_single_tissue_set = df_metadata[~df_metadata['patient_id'].isin(multiple_tissues_patients)].copy()
+df_single_tissue_set = df_metadata[~df_metadata['patient_id'].isin(multiple_phase_patients)].copy()
 
-df_single_tissue_set.to_csv('tissues_singles.csv', index=False)
-df_test_multiple_tissues.to_csv('tissues_multiple.csv', index=False)
+df_single_tissue_set.to_csv('tissues_single_phase.csv', index=False)
+df_test_multiple_phases.to_csv('tissues_multiple_phases.csv', index=False)
 
-print(f"Cohort H - Single samples: {len(df_single_tissue_set)} samples ({df_single_tissue_set['patient_id'].nunique()} patients)")
-print(f"Cohort H - Multiple samples:  {len(df_test_multiple_tissues)} samples ({len(multiple_tissues_patients)} patients)\n")
+print(f"Cohort H - Single phase samples: {len(df_single_tissue_set)} samples ({df_single_tissue_set['patient_id'].nunique()} patients)")
+print(f"Cohort H - Multiple phase samples:  {len(df_test_multiple_phases)} samples ({len(multiple_phase_patients)} patients)\n")
 
 
 """"" single tissues train/test separation """""

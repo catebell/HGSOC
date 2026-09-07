@@ -9,8 +9,22 @@ Tree:
 |
 |_ <dataset_dir_name>\
 |   |
-|   |_ <bulk_RNA>\  ->  <bulk_expr>.tsv
+|   |_ <cohort_or_subset>\
+|      |
+|      |_ <RNA_bulk>\
+|         |
+|         |_ <bulk_expr>.tsv
+|         |_ <W.tsv>
 |
 |_ extracted\
+|   |
+|   |_ <dataset_dir_name>\
+|   |   |
+|   |   |_ <cohort_or_subset>\
+|   |       |
+|   |       |_ <RNA_bulk>.tsv\
+|   |
+|   |_ <samples_metadata>.tsv
 |
-|_ <extract>.py  (eventual script to obtain <bulk_expr>.tsv in correct format)
+|_ 1_extract_metadata.py
+|_ 2_extract_bulk.py

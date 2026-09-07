@@ -18,7 +18,7 @@ dir_to_save = path.join(dataset_dir, "extracted")
 def split_bulk_by_cohort():
     makedirs(dir_to_save, exist_ok=True)
 
-    print("Loading files...\n")
+    print("Loading files...")
 
     df_metadata = read_csv(metadata_path, sep='\t', usecols=['sample_id', 'cohort', 'sample_class'])
     #print(metadata_filepath.info(memory_usage='deep'))

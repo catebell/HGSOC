@@ -2,7 +2,6 @@ import logging
 import os
 
 import joblib
-import numpy as np
 import pandas as pd
 import torch
 from sklearn.model_selection import StratifiedKFold
@@ -44,12 +43,11 @@ elif task == 'survival':
     target_column = config_file_tree.SURVIVAL_EVENT_COL  # placeholder, won't actually be used here
     logging.info(f"Starting training on survival prediction\n")
 
-path_to_clinical = os.path.join("..", "2_preprocessing", "preprocessed_clinical_data.tsv")
+path_to_clinical = os.path.join("..", "2_preprocessing", "preprocessed_clinical.tsv")
 
-paths_graphs_splits = {
-    "train_val": os.path.join("..", "4_samples_graph_creation", "processed_graphs", "train_val"),
-    "test": os.path.join("..", "4_samples_graph_creation", "processed_graphs", "test")
-}
+path_graphs_dir = os.path.join("..", "4_samples_graph_creation", "processed_graphs")
+path_train_val_csv = os.path.join("..", "3_train_test_split", "singles_train_val.csv")
+path_test_csv = os.path.join("..", "3_train_test_split", "singles_test.csv")
 
 dir_to_save = os.path.join("trained_models")
 os.makedirs(dir_to_save, exist_ok=True)
@@ -58,20 +56,32 @@ os.makedirs(dir_to_save, exist_ok=True)
 """"" loading clinical data_HERCULES_DECIDER """""
 
 df_clinical_preprocessed = pd.read_csv(path_to_clinical, sep="\t")
+clinical_train_val_samples = pd.read_csv(path_train_val_csv)
+clinical_test_samples = pd.read_csv(path_test_csv)
 
+df_clinical_train_val = df_clinical_preprocessed[
+    df_clinical_preprocessed['sample_id'].isin(clinical_train_val_samples['sample_id'])
+].copy()
+
+df_clinical_test = df_clinical_preprocessed[
+    df_clinical_preprocessed['sample_id'].isin(clinical_test_samples['sample_id'])
+].copy()
+
+# TODO no clinical
+'''  
 # reverse preprocessing formatting
 df_clinical_preprocessed = df_clinical_preprocessed.replace(-1, np.nan)
 
 if task == 'classification':
     df_clinical_preprocessed = df_clinical_preprocessed.dropna(subset=[target_column])
     df_clinical_preprocessed[target_column] = df_clinical_preprocessed[target_column].astype(int)
-
+'''
 
 logging.info("Train + Val Dataset init...")
-train_val_dataset = PatientTissueDataset(paths_graphs_splits.get("train_val"), df_clinical_preprocessed, task=task, target_col=target_column)
+train_val_dataset = PatientTissueDataset(path_graphs_dir, df_clinical_train_val, task=task, target_col=target_column)
 
 logging.info("Test Dataset init...")
-test_dataset = PatientTissueDataset(paths_graphs_splits.get("test"), df_clinical_preprocessed, task=task, target_col=target_column)
+test_dataset = PatientTissueDataset(path_graphs_dir, df_clinical_test, task=task, target_col=target_column)
 
 print_details(train_val_dataset)
 
@@ -128,54 +138,55 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(train_val_dataset, y_skf))
     model_name = f"best_{task}_model_fold{fold + 1}.pt"
 
     """"" clinical fold specific processing """""
+    '''
+    if use_clinical:
+        # retrieving patient ids of current train/val splits from graphs sample ids
+        train_samples_ids = ["-".join(train_val_dataset[i].sample_id.split("-")[:3]) for i in train_idx]
+        val_samples_ids = ["-".join(train_val_dataset[i].sample_id.split("-")[:3]) for i in val_idx]
+        test_samples_ids = ["-".join(test_dataset[i].sample_id.split("-")[:3]) for i,_ in enumerate(test_dataset)]
 
-    # retrieving patient ids of current train/val splits from graphs sample ids
-    train_samples_ids = ["-".join(train_val_dataset[i].sample_id.split("-")[:3]) for i in train_idx]
-    val_samples_ids = ["-".join(train_val_dataset[i].sample_id.split("-")[:3]) for i in val_idx]
-    test_samples_ids = ["-".join(test_dataset[i].sample_id.split("-")[:3]) for i,_ in enumerate(test_dataset)]
+        df_clinical_train = df_clinical_preprocessed[df_clinical_preprocessed['bcr_patient_barcode'].isin(train_samples_ids)]
+        df_clinical_val = df_clinical_preprocessed[df_clinical_preprocessed['bcr_patient_barcode'].isin(val_samples_ids)]
+        df_clinical_test = df_clinical_preprocessed[df_clinical_preprocessed['bcr_patient_barcode'].isin(test_samples_ids)]
 
-    df_clinical_train = df_clinical_preprocessed[df_clinical_preprocessed['bcr_patient_barcode'].isin(train_samples_ids)]
-    df_clinical_val = df_clinical_preprocessed[df_clinical_preprocessed['bcr_patient_barcode'].isin(val_samples_ids)]
-    df_clinical_test = df_clinical_preprocessed[df_clinical_preprocessed['bcr_patient_barcode'].isin(test_samples_ids)]
+        df_clinical_train_processed, scalers, imputers, categories = nan_imputation_and_features_normalization(
+            df=df_clinical_train,
+            target_col=target_column,
+            is_train=True,
+        )
 
-    df_clinical_train_processed, scalers, imputers, categories = nan_imputation_and_features_normalization(
-        df=df_clinical_train,
-        target_col=target_column,
-        is_train=True,
-    )
+        # saving preprocessors for evaluation/model usage
+        preprocessors = {
+            'scalers': scalers,
+            'imputers': imputers,
+            'categories': categories,
+            'clinical_feature_cols': train_val_dataset.clinical_feature_cols
+        }
+        prep_save_path = os.path.join(dir_to_save, f"clinical_preprocessors_{task}_fold{fold + 1}.joblib")
+        joblib.dump(preprocessors, prep_save_path)
 
-    # saving preprocessors for evaluation/model usage
-    preprocessors = {
-        'scalers': scalers,
-        'imputers': imputers,
-        'categories': categories,
-        'clinical_feature_cols': train_val_dataset.clinical_feature_cols
-    }
-    prep_save_path = os.path.join(dir_to_save, f"clinical_preprocessors_{task}_fold{fold + 1}.joblib")
-    joblib.dump(preprocessors, prep_save_path)
+        df_clinical_val_processed = nan_imputation_and_features_normalization(
+            df=df_clinical_val,
+            target_col=target_column,
+            is_train=False,
+            scalers=scalers,
+            imputers=imputers,
+            categories=categories,
+        )
+        df_clinical_processed = pd.DataFrame(pd.concat([df_clinical_train_processed, df_clinical_val_processed]))
+        train_val_dataset.update_clinical_df(df_clinical_processed)
+        num_clinical_features = len(train_val_dataset.clinical_feature_cols)
 
-    df_clinical_val_processed = nan_imputation_and_features_normalization(
-        df=df_clinical_val,
-        target_col=target_column,
-        is_train=False,
-        scalers=scalers,
-        imputers=imputers,
-        categories=categories,
-    )
-    df_clinical_processed = pd.DataFrame(pd.concat([df_clinical_train_processed, df_clinical_val_processed]))
-    train_val_dataset.update_clinical_df(df_clinical_processed)
-    num_clinical_features = len(train_val_dataset.clinical_feature_cols)
-
-    df_clinical_test_processed = nan_imputation_and_features_normalization(
-        df=df_clinical_test,
-        target_col=target_column,
-        is_train=False,
-        scalers=scalers,
-        imputers=imputers,
-        categories=categories,
-    )
-    test_dataset.update_clinical_df(df_clinical_test_processed )
-
+        df_clinical_test_processed = nan_imputation_and_features_normalization(
+            df=df_clinical_test,
+            target_col=target_column,
+            is_train=False,
+            scalers=scalers,
+            imputers=imputers,
+            categories=categories,
+        )
+        test_dataset.update_clinical_df(df_clinical_test_processed )
+    '''
 
     """"" fold specific dataset separation and DataLoader """""
 

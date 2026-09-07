@@ -19,4 +19,4 @@ TARGET_COL = 'tissue'
 SURVIVAL_EVENT_COL = 'deceased'
 SURVIVAL_TIME_COL = 'overall_survival_days'
 
-#USE_CLINICAL_DATA = True  # available (and filtered) metadata included or not in embeddings creation
+USE_CLINICAL_DATA = True  # available (and filtered) metadata included or not in embeddings creation

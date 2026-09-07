@@ -1,13 +1,120 @@
 from os import path
-from sklearn.preprocessing import MultiLabelBinarizer
-
+from sklearn.preprocessing import LabelEncoder
 import config_file_tree
 from TODO_utils_clinical_clean_methods import *
 
-path_to_clinical_file = path.join('..', '1_dataset', 'data_extracted', 'clinical_data.tsv')
+path_to_clinical_file = path.join('..', '1_dataset', 'data_HERCULES_DECIDER', 'samples_metadata.tsv')
 df_clinical = pd.read_csv(path_to_clinical_file, sep="\t")
 
 
+print(f"Clinical file loaded: {df_clinical.shape[0]} samples.")
+
+# keeping only BulkTissue, filtering out CellLine and DissociatedTissue
+if 'sample_class' in df_clinical.columns:
+    df_clinical = df_clinical[df_clinical['sample_class'] == 'BulkTissue'].copy()
+    print(f"'BulkTissue' samples kept: {df_clinical.shape[0]} samples.")
+
+features_to_keep = [
+    "sample_id",
+    "patient_id",
+    "cohort",
+    "phase",
+    "phase_label",
+    "tissue",
+    "extraction"
+]
+
+available_features = [col for col in features_to_keep if col in df_clinical.columns]
+df_filtered = df_clinical[available_features].copy()
+
+
+def simplify_tissue(tissue_str):
+    """
+    Groups tissues names removing numbers and L/R specifiers (L/R) #TODO check if keep
+    (es. OvaR1 -> Ova, Ome1 -> Ome, Asc1 -> Asc).
+    """
+    if pd.isna(tissue_str):
+        return 'Unknown'
+
+    tissue_str = str(tissue_str).strip()
+
+    # mapping known based on documentation
+    main_tissues = ['Ome', 'Ova', 'Per', 'Asc', 'Tub', 'Ute', 'LN', 'Bow', 'Plf', 'Mes', 'Adn', 'Oth']
+    for t in main_tissues:
+        if tissue_str.startswith(t):
+            return t
+    return 'Other'
+
+
+def clean_and_aggregate_features(df):
+    df_clean = df.copy()
+
+    if 'phase_label' in df_clean.columns:
+        df_clean['phase_label'] = df_clean['phase_label'].fillna('Unknown')
+
+    if 'tissue' in df_clean.columns:
+        df_clean['tissue_group'] = df_clean['tissue'].apply(simplify_tissue)
+
+    return df_clean
+
+
+def encode_categorical_features(df):
+    df_encoded = df.copy()
+
+    cols_for_one_hot = ['cohort', 'phase_label', 'tissue_group']
+    existing_one_hot = [col for col in cols_for_one_hot if col in df_encoded.columns and col != target_col]
+
+    if existing_one_hot:
+        df_encoded = pd.get_dummies(
+            df_encoded,
+            columns=existing_one_hot,
+            drop_first=False,
+            dtype=int
+        )
+
+    return df_encoded
+
+
+df_cleaned = clean_and_aggregate_features(df_filtered)
+
+# handling classification of uncommon classes
+if hasattr(config_file_tree, 'TASK') and config_file_tree.TASK == 'classification':
+    target_col = config_file_tree.TARGET_COL
+    if target_col in df_cleaned.columns:
+        min_samples = len(df_cleaned) * 0.05  # 5% threshold
+        before = df_cleaned.copy()
+        df_cleaned = pd.DataFrame(df_cleaned.groupby(target_col).filter(lambda x: len(x) >= min_samples))
+        removed_values = set(before[target_col].unique()) - set(df_cleaned[target_col].unique())
+        if removed_values:
+            print(f"Removed target classes with <5% of samples: {removed_values}")
+
+    MIN_SAMPLES = 20
+    counts = df_cleaned['tissue_group'].value_counts()
+    valid_tissues = counts[counts >= MIN_SAMPLES].index.tolist()
+
+    df_target = df_cleaned[df_cleaned['tissue_group'].isin(valid_tissues)].copy()
+
+    label_encoder = LabelEncoder()  # to numbers
+    df_target[target_col] = label_encoder.fit_transform(df_target['tissue_group'])
+
+    # Mapping (es. {'Adn': 0, 'Asc': 1, 'Mes': 2, 'Ome': 3, 'Oth': 4, 'Ova': 5, 'Per': 6, 'Tub': 7})
+    class_mapping = dict(zip(label_encoder.classes_, range(len(label_encoder.classes_))))
+    print("Target class mapping:", class_mapping)
+
+    df_processed = encode_categorical_features(df_target)
+
+
+print("\nFinal shape of processed DataFrame:", df_processed.shape)
+print("\nFinal DataFrame columns:")
+print(df_processed.columns.tolist())
+
+df_processed.to_csv("preprocessed_clinical.tsv", sep='\t', index=False)
+
+
+
+
+#TODO adattare a nuovi dati clinici:
+'''
 # removal of patients that had radiation therapy (heavily impacts CNVs)
 df_clinical = df_clinical[~df_clinical['radiation_therapy'].fillna('').astype(str).str.contains('YES', case=False)]
 
@@ -238,16 +345,6 @@ def features_encoding(df_mapped):
             dtype=int
         )
 
-    '''  # TODO check con ovary se vengono codificati bene
-    for col in cols_for_one_hot:
-        df_encoded = pd.get_dummies(
-            df_encoded,
-            columns=cols_for_one_hot,
-            drop_first=False,  # set True if preparing for unregularized regression models
-            dtype=int,
-        )
-    '''
-
     return df_encoded
 
 
@@ -276,11 +373,10 @@ if config_file_tree.TASK == 'classification':
     if removed_values:
         print(f"Removed target classes appearing in <10% of patients: {removed_values}")
 
-
 print("\nFinal Processed Data Shape:", df_processed.shape)
 print("\nColumns in final DataFrame:")
 print(df_processed.columns.tolist())
 
 # Save preprocessed clinical data_HERCULES_DECIDER
 df_processed.to_csv("preprocessed_clinical_data.tsv", sep='\t', index=False)
-
+'''
