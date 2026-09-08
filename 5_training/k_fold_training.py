@@ -1,7 +1,6 @@
 import logging
 import os
 
-import joblib
 import pandas as pd
 import torch
 from sklearn.model_selection import StratifiedKFold
@@ -162,7 +161,7 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(train_val_dataset, y_skf))
             'categories': categories,
             'clinical_feature_cols': train_val_dataset.clinical_feature_cols
         }
-        prep_save_path = os.path.join(dir_to_save, f"clinical_preprocessors_{task}_fold{fold + 1}.joblib")
+        prep_save_path = os.path.join(output_dir, f"clinical_preprocessors_{task}_fold{fold + 1}.joblib")
         joblib.dump(preprocessors, prep_save_path)
 
         df_clinical_val_processed = nan_imputation_and_features_normalization(

@@ -19,12 +19,12 @@ logging.basicConfig(
 
 """"" paths and parameters """""
 
+dataset_dir = config_file_tree.DATASET_DIR
 RNA_bulk_raw = config_file_tree.RNA_BULK_RAW_FILE
 
-out_extracted_dir = config_file_tree.EXTRACTED_DATA_DIR
-makedirs(out_extracted_dir, exist_ok=True)
+makedirs(dataset_dir, exist_ok=True)
 
-out_metadata_filepath = path.join(out_extracted_dir, "samples_metadata.tsv")
+out_metadata_filepath = path.join(dataset_dir, "samples_metadata.tsv")
 
 
 def parse_sample_id(sample_id):

@@ -9,6 +9,8 @@ DECONVOLUTION_W_FILE = path.join(RNA_DATA_DIR, "W.tsv")
 
 EXTRACTED_DATA_DIR = path.join("..", "1_dataset", "extracted_data", DATASET_NAME)
 
+PREPROCESSED_DATA_DIR = path.join("..", "2_preprocessing", "preprocessed_data", DATASET_NAME)
+
 
 """"" training parameters """""
 

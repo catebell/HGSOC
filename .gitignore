@@ -1,8 +1,7 @@
 /1_dataset/data_HERCULES_DECIDER
 /1_dataset/extracted_data
 
-/2_preprocessing/preprocessed_RNA_bulk/
-/2_preprocessing/preprocessed_clinical.tsv
+/2_preprocessing/preprocessed_data/
 
 /3_train_test_split/*.csv
 

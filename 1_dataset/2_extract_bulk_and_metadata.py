@@ -3,17 +3,20 @@ from os import path
 from pandas import read_csv
 from tqdm import tqdm
 
+import PCA
 import config_file_tree
 
 
 """"" paths and parameters """""
 
+metadata_filepath = path.join(config_file_tree.DATASET_DIR, "samples_metadata.tsv")
 rna_bulk_raw_filepath = config_file_tree.RNA_BULK_RAW_FILE
 deconv_w_filepath = config_file_tree.DECONVOLUTION_W_FILE
 
 extracted_dir = config_file_tree.EXTRACTED_DATA_DIR  # is also output dir
+output_metadata_filepath = path.join(extracted_dir, "extracted_samples_metadata.tsv")
 
-metadata_path = path.join(extracted_dir, "samples_metadata.tsv")
+output_bulk_filepath = path.join(extracted_dir, "bulk_expr_filtered.tsv")
 
 COHORT_THRESHOLD = 1  # % of minimum samples per cohort wrt the total num of samples
 EOC_THRESHOLD = 0.30
@@ -21,8 +24,7 @@ EOC_THRESHOLD = 0.30
 def filter_bulk():
     print("Loading files...")
 
-    df_metadata = read_csv(metadata_path, sep='\t', usecols=['sample_id', 'cohort', 'sample_class'])
-
+    df_metadata = read_csv(metadata_filepath, sep='\t')
     df_bulk = read_csv(rna_bulk_raw_filepath, sep="\t")
     #df_bulk.info(memory_usage='deep')
     gene_col = df_bulk.columns[0]
@@ -87,15 +89,15 @@ def filter_bulk():
     print(f"\nKeeping {len(valid_samples)} samples...")
     df_bulk_filtered = df_bulk[[gene_col] + valid_samples]
 
-    output_bulk_file = path.join(extracted_dir, "bulk_expr_filtered.tsv")
-    logging.info(f"\nSaving filtered bulk matrix: '{output_bulk_file}' (Shape: {df_bulk_filtered.shape})...")
-    df_bulk_filtered.to_csv(output_bulk_file, sep="\t", index=False)
+    logging.info(f"\nSaving filtered bulk matrix: '{output_bulk_filepath}' (Shape: {df_bulk_filtered.shape})...")
 
-    #output_meta_file = path.join(extracted_dir, "samples_metadata_filtered.tsv")
-    #df_metadata_filtered.to_csv(output_meta_file, sep="\t", index=False)
-    #print(f"Saved filtered metadata: '{output_meta_file}' (Shape: {df_metadata_filtered.shape})")
+    df_bulk_filtered.to_csv(output_bulk_filepath, sep="\t", index=False)
+
+    df_metadata_filtered.to_csv(output_metadata_filepath, sep="\t", index=False)
+    print(f"Saved filtered metadata: '{output_metadata_filepath}' (Shape: {df_metadata_filtered.shape})")
 
 
 if __name__ == "__main__":
     filter_bulk()
+    PCA.run_pca_analysis(output_bulk_filepath, output_metadata_filepath, extracted_dir)
     print("\nDONE!")

@@ -4,6 +4,7 @@ from os import path, makedirs
 import numpy as np
 from pandas import read_csv, DataFrame, concat
 
+import PCA
 import config_file_tree
 
 logging.basicConfig(
@@ -12,15 +13,21 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 
+
 """"" paths and parameters """""
 
-rna_bulk_file = config_file_tree.RNA_EXTRACTED_FILE
+extracted_dir = config_file_tree.EXTRACTED_DATA_DIR
+rna_bulk_filepath = path.join(extracted_dir, "bulk_expr_filtered.tsv")
+
 string_aliases_filepath = path.join('..', 'ppi_string_files', '9606.protein.aliases.v12.0.txt')
 
-dir_to_save = path.join("preprocessed_RNA_bulk")
+output_dir = config_file_tree.PREPROCESSED_DATA_DIR
+makedirs(output_dir, exist_ok=True)
 
-top_genes_path = path.join(dir_to_save, "selected_top_genes.tsv")
-filtered_matrix_path = path.join(dir_to_save, f"bulk_expr_top_genes_log2.tsv")
+preprocessed_metadata_filepath = path.join(output_dir, 'preprocessed_samples_metadata.tsv')
+
+top_genes_filepath = path.join(output_dir, "selected_top_genes.tsv")
+output_matrix_filepath = path.join(output_dir, f"bulk_expr_top_genes_log2.tsv")
 
 
 """"" utility functions """""
@@ -33,10 +40,7 @@ def get_protein_coding_ensg(filepath):
         "alias": "str",
         "source": "category",
     }).dropna()
-
-    print()
-    print(df_aliases.info(memory_usage="deep"))
-    print()
+    #df_aliases.info(memory_usage="deep")
 
     ensg_mask = df_aliases['alias'].str.startswith('ENSG')
     df_ensg = df_aliases[ensg_mask].copy()
@@ -93,14 +97,15 @@ def get_protein_coding_ensg(filepath):
     return prot_coding_ensg_set, ensg_to_names
 
 
-def preprocess_hercules_rna_bulk(top_n_genes=5000):
-    makedirs(dir_to_save, exist_ok=True)
-
-    logging.info(f"Loading matrix (genes x samples) from {rna_bulk_file.split(path.sep)[-1]}...")
-    df_bulk = read_csv(rna_bulk_file, sep="\t")
-
+def preprocess_rna_bulk(top_n_genes=5000):
+    logging.info(f"Loading matrix (genes x samples) from {rna_bulk_filepath.split(path.sep)[-1]}...")
+    df_bulk = read_csv(rna_bulk_filepath, sep="\t")
     gene_id_col = df_bulk.columns[0]
-    sample_cols = list(df_bulk.columns[1:])
+
+    df_metadata = read_csv(preprocessed_metadata_filepath, sep='\t')
+
+    # keeping only samples present in metadata:
+    df_bulk = df_bulk.loc[:, [gene_id_col] + df_metadata['sample_id'].to_list()]
 
     # remove gene_id version number (es. ENSG00000141510.12 -> ENSG00000141510)
     df_bulk[gene_id_col] = df_bulk[gene_id_col].astype(str).str.split('.').str[0]
@@ -114,6 +119,7 @@ def preprocess_hercules_rna_bulk(top_n_genes=5000):
     logging.info(f" --> Protein-coding filter: genes reduced from {initial_gene_count} to {len(df_bulk)}.")
 
     # if there are ambiguities (gene_ids duplicated), keep higher expression
+    sample_cols = list(df_bulk.columns[1:])
     matrix_rna = df_bulk.groupby(gene_id_col)[sample_cols].max()
 
     logging.info("Computing log2(counts + 1)...")
@@ -128,19 +134,22 @@ def preprocess_hercules_rna_bulk(top_n_genes=5000):
     matrix_rna = matrix_rna[top_genes_var.index]
 
     # saving as matrix (Genes x Samples)
-    matrix_rna.T.to_csv(filtered_matrix_path, sep='\t')
+    matrix_rna.T.to_csv(output_matrix_filepath, sep='\t')
 
     top_genes_df = DataFrame()
     top_genes_df['gene_id'] = top_genes_var.index
     top_genes_df['variance'] = top_genes_var.values
     top_genes_df['gene_name'] = [ensg_to_names_map.get(gene_id, 'N/A') for gene_id in top_genes_var.index]
 
-    top_genes_df.to_csv(top_genes_path, sep='\t', index=False)
-    logging.info(f"Selected top genes saved in: {top_genes_path}\n")
+    top_genes_df.to_csv(top_genes_filepath, sep='\t', index=False)
+    logging.info(f"Selected top genes saved in: {top_genes_filepath}\n")
 
 
 if __name__=="__main__":
-    preprocess_hercules_rna_bulk()
+    preprocess_rna_bulk()
+    PCA.run_pca_analysis(output_matrix_filepath, preprocessed_metadata_filepath, output_dir, 'cohort')
+    PCA.run_pca_analysis(output_matrix_filepath, preprocessed_metadata_filepath, output_dir, 'tissue')
+    PCA.run_pca_analysis(output_matrix_filepath, preprocessed_metadata_filepath, output_dir, 'phase_label')
 
 
 print("DONE\n")
