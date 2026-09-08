@@ -11,6 +11,8 @@ EXTRACTED_DATA_DIR = path.join("..", "1_dataset", "extracted_data", DATASET_NAME
 
 PREPROCESSED_DATA_DIR = path.join("..", "2_preprocessing", "preprocessed_data", DATASET_NAME)
 
+PROCESSED_GRAPHS_DIR = path.join("..", "4_samples_graph_creation", "processed_graphs", DATASET_NAME)
+
 
 """"" training parameters """""
 

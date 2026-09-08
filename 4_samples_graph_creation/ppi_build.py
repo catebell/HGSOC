@@ -3,9 +3,13 @@ import numpy as np
 import pandas as pd
 import torch
 
+import config_file_tree
+
 path_ppi_file = os.path.join("..", "ppi_string_files","9606.protein.links.v12.0.txt")
 path_protein_gene_file = os.path.join("..", "ppi_string_files","9606.protein.aliases.v12.0.txt")
-path_top_genes_file = os.path.join('..', '2_preprocessing', 'preprocessed_RNA_bulk', 'selected_top_genes.tsv')
+
+preprocessed_dir = config_file_tree.PREPROCESSED_DATA_DIR
+path_top_genes_file = os.path.join(preprocessed_dir, 'selected_top_genes.tsv')
 
 def build_edge_index():
     """ Select existing connections only between top genes found """
@@ -18,8 +22,6 @@ def build_edge_index():
         '#string_protein_id': 'category', 'alias': 'string'
     })
 
-    df_protein_gene = df_protein_gene.rename(columns={'#string_protein_id': 'protein_id', 'alias': 'gene_name'})
-
     df_ppi = pd.read_csv(path_ppi_file, sep=' ', dtype={
         'protein1': 'category', 'protein2': 'category', 'combined_score': 'int'
     })
@@ -31,8 +33,11 @@ def build_edge_index():
 
     df_filtered_proteins = pd.DataFrame(top_genes)
 
+    df_protein_gene = df_protein_gene.rename(columns={'#string_protein_id': 'protein_id', 'alias': 'gene_id'})
+    # 'alias' contains also the ENSGs (gene_id)
+
     # add all protein_ids associated to a gene_id/name as multiple rows
-    df_filtered_proteins = pd.merge(df_filtered_proteins, df_protein_gene, how='left', on=['gene_name'])
+    df_filtered_proteins = pd.merge(df_filtered_proteins, df_protein_gene, how='left', on=['gene_id'])
     df_filtered_proteins = df_filtered_proteins.dropna()
     df_filtered_proteins = df_filtered_proteins.drop_duplicates(subset=['gene_id','protein_id'])
     df_filtered_proteins = df_filtered_proteins.reset_index(drop=True)
