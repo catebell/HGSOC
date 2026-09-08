@@ -1,12 +1,13 @@
 from os import path
 
+DATASET_NAME = "data_HERCULES_DECIDER"
 
-DATASET_DIR = path.join("..", "1_dataset", "data_HERCULES_DECIDER")
+DATASET_DIR = path.join("..", "1_dataset", DATASET_NAME)
 RNA_DATA_DIR = path.join(DATASET_DIR, "bulk_RNA")
 RNA_BULK_RAW_FILE = path.join(RNA_DATA_DIR, "bulk_expr.tsv")
+DECONVOLUTION_W_FILE = path.join(RNA_DATA_DIR, "W.tsv")
 
-RNA_EXTRACTED_FILE = path.join(DATASET_DIR, "extracted", "bulk_expr_cohort_H.tsv")  # in this case-project, cohort to use
-
+EXTRACTED_DATA_DIR = path.join("..", "1_dataset", "extracted_data", DATASET_NAME)
 
 
 """"" training parameters """""

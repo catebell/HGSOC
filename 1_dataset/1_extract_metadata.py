@@ -1,7 +1,7 @@
 import logging
 import re
-from os import path
-import pandas as pd
+from os import path, makedirs
+from pandas import read_csv, DataFrame
 from tqdm import tqdm
 
 import config_file_tree
@@ -20,14 +20,16 @@ logging.basicConfig(
 """"" paths and parameters """""
 
 RNA_bulk_raw = config_file_tree.RNA_BULK_RAW_FILE
-dataset_dir = config_file_tree.DATASET_DIR
 
-metadata_path = path.join(dataset_dir, "data_HERCULES_DECIDER/samples_metadata.tsv")
+out_extracted_dir = config_file_tree.EXTRACTED_DATA_DIR
+makedirs(out_extracted_dir, exist_ok=True)
+
+out_metadata_filepath = path.join(out_extracted_dir, "samples_metadata.tsv")
 
 
 def parse_sample_id(sample_id):
     """
-    Decode naming convention (es. H001_pOvaR1_FS1_RNA1 -> Patient, Phase, Tissue, SubSample, Extraction)
+    Decode naming convention (es. H001_pOvaR1_FS1_RNA1 -> Patient, Phase, Tissue, Extraction)
     """
 
     tokens = sample_id.split('_')
@@ -39,7 +41,6 @@ def parse_sample_id(sample_id):
         'phase': None,
         'phase_label': 'Unknown',
         'tissue': None,
-        'subsample': None,
         'sample_class': 'BulkTissue',
         'extraction': None
     }
@@ -81,7 +82,7 @@ def parse_sample_id(sample_id):
         # subsample type / cellular line (es. CLadh, CLsph, CL62, FS1, PE, DE, DT)
         m_sub = re.match(r"^(?P<subsample>CL\w*|FS\d*|PE\w*|DE|DT|SCB|SC|HE|PAX)$", token, re.IGNORECASE)
         if m_sub:
-            info['subsample'] = token
+            #info['subsample'] = token
             sub_upper = token.upper()
             if sub_upper.startswith('CL'):
                 info['sample_class'] = 'CellLine'
@@ -118,7 +119,7 @@ def parse_sample_id(sample_id):
 
 def get_hercules_metadata():
     logging.info(f"Loading matrix (genes x samples) from {RNA_bulk_raw.split(path.sep)[-1]}...")
-    df_bulk = pd.read_csv(RNA_bulk_raw, sep="\t")
+    df_bulk = read_csv(RNA_bulk_raw, sep="\t")
 
     sample_cols = list(df_bulk.columns[1:])
 
@@ -129,10 +130,10 @@ def get_hercules_metadata():
         parsed_info['sample_id'] = sample_id
         metadata_list.append(parsed_info)
 
-    df_metadata = pd.DataFrame(metadata_list)
+    df_metadata = DataFrame(metadata_list)
 
-    df_metadata.to_csv(metadata_path, index=False, sep='\t')
-    logging.info(f"Metadata saved in: {metadata_path}\n")
+    df_metadata.to_csv(out_metadata_filepath, index=False, sep='\t')
+    logging.info(f"Metadata saved in: {out_metadata_filepath}\n")
 
 
 if __name__ == "__main__":
