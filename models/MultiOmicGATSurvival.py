@@ -38,7 +38,7 @@ class CoxPHLoss(Module):
 
 
 class MultiOmicGATSurvival(Module):
-    def __init__(self, in_node_features, hidden_dim, out_channels, heads=4, dropout=0.2, num_clinical_features=0):
+    def __init__(self, in_node_features, hidden_dim, out_channels, heads=4, dropout=0.2, num_samples_features=0):
         super(MultiOmicGATSurvival, self).__init__()
 
         # GATv2Conv solves static attention problem mentioned in the original paper
@@ -71,11 +71,11 @@ class MultiOmicGATSurvival(Module):
         self.norm1 = LayerNorm(hidden_dim * heads)
         self.norm2 = LayerNorm(hidden_dim)
 
-        self.num_clinical_features = num_clinical_features
+        self.num_clinical_features = num_samples_features
 
-        if num_clinical_features > 0:
+        if num_samples_features > 0:
             self.clinical_encoder = Sequential(
-                Linear(num_clinical_features, 32),
+                Linear(num_samples_features, 32),
                 ReLU(),
                 Dropout(p=dropout)
             )

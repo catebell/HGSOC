@@ -14,9 +14,9 @@ rna_bulk_raw_filepath = config_file_tree.RNA_BULK_RAW_FILE
 deconv_w_filepath = config_file_tree.DECONVOLUTION_W_FILE
 
 extracted_dir = config_file_tree.EXTRACTED_DATA_DIR  # is also output dir
-output_metadata_filepath = path.join(extracted_dir, "extracted_samples_metadata.tsv")
+output_metadata_filepath = path.join(extracted_dir, "raw_samples_metadata.tsv")
 
-output_bulk_filepath = path.join(extracted_dir, "bulk_expr_filtered.tsv")
+output_bulk_filepath = path.join(extracted_dir, "raw_bulk_expr_filtered.tsv")
 
 COHORT_THRESHOLD = 1  # % of minimum samples per cohort wrt the total num of samples
 EOC_THRESHOLD = 0.30
@@ -99,5 +99,6 @@ def filter_bulk():
 
 if __name__ == "__main__":
     filter_bulk()
-    PCA.run_pca_analysis(output_bulk_filepath, output_metadata_filepath, extracted_dir)
+    if config_file_tree.RUN_PCA:
+        PCA.run_pca_analysis(output_bulk_filepath, output_metadata_filepath, extracted_dir)
     print("\nDONE!")

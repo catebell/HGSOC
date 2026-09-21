@@ -14,7 +14,7 @@ def train_epoch(device, model, loader, optimizer, criterion):
     for data in loader:  # data_HERCULES_DECIDER = batch of graphs
         data = data.to(device)
         optimizer.zero_grad()
-        out, _ = model(data.x, data.edge_index, data.batch, data.clinical_x)
+        out, _ = model(data.x, data.edge_index, data.batch, data.metadata_x)
 
         loss = criterion(out, data.y)
         loss.backward()
@@ -37,7 +37,7 @@ def evaluate(device, model, loader, criterion):
     with torch.no_grad():
         for data in loader:
             data = data.to(device)
-            out, _ = model(data.x, data.edge_index, data.batch, data.clinical_x)
+            out, _ = model(data.x, data.edge_index, data.batch, data.metadata_x)
             loss = criterion(out, data.y)
             total_loss += loss.item() * data.num_graphs
 
@@ -86,7 +86,7 @@ def train_epoch_survival(device, model, loader, optimizer, criterion):
         optimizer.zero_grad()
 
         # output = Log-Hazard (relative risk)
-        risk_pred, _ = model(data.x, data.edge_index, data.batch, data.clinical_x)
+        risk_pred, _ = model(data.x, data.edge_index, data.batch, data.metadata_x)
 
         # Cox Loss based on (risk_pred, event, time)
         loss = criterion(risk_pred, data.y_event, data.y_time)
@@ -109,7 +109,7 @@ def evaluate_survival(device, model, loader, criterion):
     with torch.no_grad():
         for data in loader:
             data = data.to(device)
-            risk_pred, _ = model(data.x, data.edge_index, data.batch, data.clinical_x)
+            risk_pred, _ = model(data.x, data.edge_index, data.batch, data.metadata_x)
 
             loss = criterion(risk_pred, data.y_event, data.y_time)
             total_loss += loss.item() * data.num_graphs

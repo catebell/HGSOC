@@ -11,7 +11,7 @@ from torch.utils.data import Subset
 from torch_geometric.loader import DataLoader
 
 import config_file_tree
-from train_eval_utils import  nan_imputation_and_features_normalization
+from train_eval_utils import  pre_train_imputation_encoding
 from PatientTissueDataset import PatientTissueDataset
 from models.MultiOmicGAT import MultiOmicGAT
 from models.MultiOmicGATSurvival import MultiOmicGATSurvival, CoxPHLoss
@@ -96,8 +96,8 @@ train_val_dataset = PatientTissueDataset(paths_graphs_splits.get("train_val"), d
 """"" set model parameters """""
 
 num_genes_features = 10  # multiomics feature vector
-num_clinical_features = len(train_val_dataset.clinical_feature_cols)  # total clinical features without the one to predict
-logging.info(f"Clinical Features found : {num_clinical_features} \n {train_val_dataset.clinical_feature_cols}")
+num_clinical_features = len(train_val_dataset.sample_feature_cols)  # total clinical features without the one to predict
+logging.info(f"Clinical Features found : {num_clinical_features} \n {train_val_dataset.sample_feature_cols}")
 
 y_target = None
 
@@ -143,13 +143,13 @@ df_clinical_train = df_clinical_preprocessed[
     df_clinical_preprocessed['bcr_patient_barcode'].isin(train_samples_ids)]
 df_clinical_val = df_clinical_preprocessed[df_clinical_preprocessed['bcr_patient_barcode'].isin(val_samples_ids)]
 
-df_clinical_train_processed, scalers, imputers, categories = nan_imputation_and_features_normalization(
+df_clinical_train_processed, scalers, imputers, categories = pre_train_imputation_encoding(
     df=df_clinical_train,
     target_col=target_column,
     is_train=True,
 )
 
-df_clinical_val_processed = nan_imputation_and_features_normalization(
+df_clinical_val_processed = pre_train_imputation_encoding(
     df=df_clinical_val,
     target_col=target_column,
     is_train=False,
@@ -159,7 +159,7 @@ df_clinical_val_processed = nan_imputation_and_features_normalization(
 )
 
 df_clinical_processed = pd.DataFrame(pd.concat([df_clinical_train_processed, df_clinical_val_processed]))
-train_val_dataset.update_clinical_df(df_clinical_processed)
+train_val_dataset.update_metadata_df(df_clinical_processed)
 
 train_dataset = Subset(train_val_dataset, train_idx)
 val_dataset = Subset(train_val_dataset, val_idx)
@@ -180,7 +180,7 @@ def train_and_eval_model(params):
             out_channels=num_classes,
             heads=4,
             dropout=params.get('dropout'),
-            num_clinical_features=num_clinical_features,
+            num_sample_features=num_clinical_features,
         ).to(device)
 
     elif task == 'survival':
@@ -190,7 +190,7 @@ def train_and_eval_model(params):
             out_channels=1,
             heads=4,
             dropout=params.get('dropout'),
-            num_clinical_features=num_clinical_features,
+            num_samples_features=num_clinical_features,
         ).to(device)
 
     logging.info(str(model) + '\n')

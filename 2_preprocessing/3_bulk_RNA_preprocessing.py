@@ -17,7 +17,7 @@ logging.basicConfig(
 """"" paths and parameters """""
 
 extracted_dir = config_file_tree.EXTRACTED_DATA_DIR
-rna_bulk_filepath = path.join(extracted_dir, "bulk_expr_filtered.tsv")
+rna_bulk_filepath = path.join(extracted_dir, "raw_bulk_expr_filtered.tsv")
 
 string_aliases_filepath = path.join('..', 'ppi_string_files', '9606.protein.aliases.v12.0.txt')
 
@@ -26,7 +26,7 @@ makedirs(output_dir, exist_ok=True)
 
 preprocessed_metadata_filepath = path.join(output_dir, 'preprocessed_samples_metadata.tsv')
 
-top_genes_filepath = path.join(output_dir, "selected_top_genes.tsv")
+output_top_genes_filepath = path.join(output_dir, "selected_top_genes.tsv")
 output_matrix_filepath = path.join(output_dir, f"bulk_expr_top_genes_log2.tsv")
 
 
@@ -131,7 +131,7 @@ def preprocess_rna_bulk(top_n_genes=5000):
     gene_variances = matrix_rna.var()
 
     top_genes_var = gene_variances.nlargest(top_n_genes)
-    matrix_rna = matrix_rna[top_genes_var.index]
+    #matrix_rna = matrix_rna[top_genes_var.index]  # TODO fare sempre a runtime
 
     # saving as matrix (Genes x Samples)
     matrix_rna.T.to_csv(output_matrix_filepath, sep='\t')
@@ -141,15 +141,16 @@ def preprocess_rna_bulk(top_n_genes=5000):
     top_genes_df['variance'] = top_genes_var.values
     top_genes_df['gene_name'] = [ensg_to_names_map.get(gene_id, 'N/A') for gene_id in top_genes_var.index]
 
-    top_genes_df.to_csv(top_genes_filepath, sep='\t', index=False)
-    logging.info(f"Selected top genes saved in: {top_genes_filepath}\n")
+    top_genes_df.to_csv(output_top_genes_filepath, sep='\t', index=False)
+    logging.info(f"Selected top genes saved in: {output_top_genes_filepath}\n")
 
 
 if __name__=="__main__":
     preprocess_rna_bulk()
-    PCA.run_pca_analysis(output_matrix_filepath, preprocessed_metadata_filepath, output_dir, 'cohort')
-    PCA.run_pca_analysis(output_matrix_filepath, preprocessed_metadata_filepath, output_dir, 'tissue')
-    PCA.run_pca_analysis(output_matrix_filepath, preprocessed_metadata_filepath, output_dir, 'phase_label')
+    if config_file_tree.RUN_PCA:
+        PCA.run_pca_analysis(output_matrix_filepath, preprocessed_metadata_filepath, output_dir, 'cohort')
+        PCA.run_pca_analysis(output_matrix_filepath, preprocessed_metadata_filepath, output_dir, 'tissue')
+        PCA.run_pca_analysis(output_matrix_filepath, preprocessed_metadata_filepath, output_dir, 'phase_label')
 
 
 print("DONE\n")

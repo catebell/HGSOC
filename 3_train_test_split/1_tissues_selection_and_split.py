@@ -1,8 +1,5 @@
-import os.path
-
-import numpy as np
+import os
 import pandas as pd
-from narwhals import DataFrame
 from sklearn.model_selection import train_test_split
 
 import config_file_tree
@@ -11,21 +8,19 @@ import config_file_tree
 Split at patient level: multiple tissues belonging to the same patient must end up in the same split.
 '''
 
-
 """"" paths and parameters """""
+
+split_by_patient = True
 
 preprocessed_data_dir = config_file_tree.PREPROCESSED_DATA_DIR
 metadata_filepath = os.path.join(preprocessed_data_dir, 'preprocessed_samples_metadata.tsv')
 
 TASK = config_file_tree.TASK
-TARGET_COL, TIME_COL = "", ""  # task label to stratify on
+TARGET_COL = config_file_tree.TARGET_COL  # task label to stratify on
+TIME_COL = ""
 
-if TASK == 'classification':
-    TARGET_COL = config_file_tree.TARGET_COL
-
-elif TASK == 'survival':
-    TARGET_COL = config_file_tree.SURVIVAL_EVENT_COL
-    TIME_COL = config_file_tree.SURVIVAL_TIME_COL
+if TASK == 'survival':
+    TIME_COL = config_file_tree.TIME_COL
 
 
 # 70% Train, 15% Val, 15% Test
@@ -49,64 +44,69 @@ print(f"Deduplicated samples in mapping: {len(df_metadata)} ({df_metadata['patie
 print("-" * 50)
 
 
-""""" tissues/phases single/multiple separation """""
-'''
-patient_phase_counts = df_metadata.groupby('patient_id')['phase'].nunique()
-multiple_phase_patients = patient_phase_counts[patient_phase_counts > 1].index  # patients with more clinical phases
-df_test_multiple_phases = df_metadata[df_metadata['patient_id'].isin(multiple_phase_patients)].copy()
-
-# single samples (for Train/Val/Test)
-df_single_tissue_set = df_metadata[~df_metadata['patient_id'].isin(multiple_phase_patients)].copy()
-
-df_single_tissue_set.to_csv('tissues_single_phase.csv', index=False)
-df_test_multiple_phases.to_csv('tissues_multiple_phases.csv', index=False)
-
-print(f"Cohort H - Single phase samples: {len(df_single_tissue_set)} samples ({df_single_tissue_set['patient_id'].nunique()} patients)")
-print(f"Cohort H - Multiple phase samples:  {len(df_test_multiple_phases)} samples ({len(multiple_phase_patients)} patients)\n")
-'''
-
 """"" single tissues train/test separation """""
 
 df_clean = df_metadata.copy()
 
 if TASK == 'survival':
-    print(f"--- Task: SURVIVAL ---")
+    print(f"\n--- Task: SURVIVAL ---\n")
     print(f"Event Col: '{TARGET_COL}' | Time Col: '{TIME_COL}'")
     print("Event distribution between samples:\n", df_clean[TARGET_COL].value_counts(normalize=True))
 
 elif TASK == 'classification':
-    print(f"--- Task: CLASSIFICATION ---")
+    print(f"\n--- Task: CLASSIFICATION ---\n")
     print(f"Target Label: '{TARGET_COL}'")
     print("Classes distribution (Sample level):\n", df_clean[TARGET_COL].value_counts(normalize=True))
 
 
-""""" stratified split (patient level) """""
+""""" stratified split """""
 
-df_patients = df_clean[['patient_id', TARGET_COL]].drop_duplicates(subset=['patient_id'], keep='first')
-
-# split train / val+test
 ratio_val_test = VAL_SIZE + TEST_SIZE  # (0.15 + 0.15 = 0.30 --> 30%)
-train_pts, val_test_pts = train_test_split(
-    df_patients['patient_id'],
-    test_size=ratio_val_test,
-    random_state=RANDOM_SEED,
-    stratify=df_patients[TARGET_COL]
-)
-
-# split val / test (remaining patients)
-val_test_targets = df_patients[df_patients['patient_id'].isin(val_test_pts)][TARGET_COL]
 ratio_test = TEST_SIZE / ratio_val_test  # 0.50
-val_pts, test_pts = train_test_split(
-    val_test_pts,
-    test_size=ratio_test,
-    random_state=RANDOM_SEED,
-    stratify=val_test_targets
-)
 
-# patient mapping to retrieve related tissues
-df_train = df_clean[df_clean['patient_id'].isin(train_pts)].copy()
-df_val   = df_clean[df_clean['patient_id'].isin(val_pts)].copy()
-df_test  = df_clean[df_clean['patient_id'].isin(test_pts)].copy()
+if split_by_patient:
+    print(f"\n[PATIENT-LEVEL stratified split]")
+    df_patients = df_clean[['patient_id', TARGET_COL]].drop_duplicates(subset=['patient_id'], keep='first')
+
+    # split train / val+test
+    train_pts, val_test_pts = train_test_split(
+        df_patients['patient_id'],
+        test_size=ratio_val_test,
+        random_state=RANDOM_SEED,
+        stratify=df_patients[TARGET_COL]
+    )
+
+    # split val / test (remaining patients)
+    val_test_targets = df_patients[df_patients['patient_id'].isin(val_test_pts)][TARGET_COL]
+    val_pts, test_pts = train_test_split(
+        val_test_pts,
+        test_size=ratio_test,
+        random_state=RANDOM_SEED,
+        stratify=val_test_targets
+    )
+
+    # patient mapping to retrieve related tissues
+    df_train = df_clean[df_clean['patient_id'].isin(train_pts)].copy()
+    df_val   = df_clean[df_clean['patient_id'].isin(val_pts)].copy()
+    df_test  = df_clean[df_clean['patient_id'].isin(test_pts)].copy()
+else:
+    print(f"\n[SAMPLE-LEVEL stratified split]")
+
+    # split train / val+test (sample level)
+    df_train, df_val_test = train_test_split(
+        df_clean,
+        test_size=ratio_val_test,
+        random_state=RANDOM_SEED,
+        stratify=df_clean[TARGET_COL]
+    )
+
+    # split val / test (sample level)
+    df_val, df_test = train_test_split(
+        df_val_test,
+        test_size=ratio_test,
+        random_state=RANDOM_SEED,
+        stratify=df_val_test[TARGET_COL]
+    )
 
 df_train_val = pd.DataFrame(pd.concat([df_train, df_val]))
 
@@ -127,13 +127,6 @@ print(f"    Train: {len(df_train)} samples ({df_train['patient_id'].nunique()} p
 print(f"    Val:   {len(df_val)} samples ({df_val['patient_id'].nunique()} patients - {len(df_val)/total_valid_samples:.1%})")
 print(f"Test:  {len(df_test)} samples ({df_test['patient_id'].nunique()} patients - {len(df_test)/total_valid_samples:.1%})")
 
-
-print("\n" + "-"*50)
-print("TISSUE TYPE DISTRIBUTION (Fluid vs Solid) across splits:")
-print("-"*50)
-for name, df_split in [('Train', df_train), ('Val', df_val), ('Test', df_test)]:
-    fluid_pct = df_split['is_fluid'].mean() * 100
-    print(f"  {name:5s} -> Fluid (Asc/Plf): {fluid_pct:.1f}% | Solid: {100-fluid_pct:.1f}%")
 
 print("\n" + "-"*50)
 print(f"TARGET ('{TARGET_COL}') DISTRIBUTION across splits (Sample-level %):")

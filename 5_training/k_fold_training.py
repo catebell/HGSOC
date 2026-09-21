@@ -9,12 +9,13 @@ from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
 import config_file_tree
-from train_eval_utils import print_details, nan_imputation_and_features_normalization
+from train_eval_utils import print_details, pre_train_imputation_encoding
 from PatientTissueDataset import PatientTissueDataset
 from models.MultiOmicGAT import MultiOmicGAT
 from models.MultiOmicGATSurvival import MultiOmicGATSurvival, CoxPHLoss
 from train_functions import train_epoch, evaluate, train_epoch_survival, evaluate_survival
 
+# TODO al momento clinical = samples metadata
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,22 +32,16 @@ logging.info("Device: " + str(device))
 
 """"" set general parameters """""
 
-use_clinical = config_file_tree.USE_CLINICAL_DATA
+use_metadata = config_file_tree.USE_SAMPLES_METADATA
 
 task = config_file_tree.TASK
+target_column = config_file_tree.TARGET_COL
 
-if task == 'classification':
-    target_column = config_file_tree.TARGET_COL
-    logging.info(f"Starting training using target feature: {target_column}\n")
-elif task == 'survival':
-    target_column = config_file_tree.SURVIVAL_EVENT_COL  # placeholder, won't actually be used here
-    logging.info(f"Starting training on survival prediction\n")
+path_to_metadata = os.path.join(config_file_tree.PREPROCESSED_DATA_DIR, "preprocessed_samples_metadata.tsv")
 
-path_to_clinical = os.path.join("..", "2_preprocessing", "preprocessed_clinical.tsv")
-
-path_graphs_dir = os.path.join("..", "4_samples_graph_creation", "processed_graphs")
-path_train_val_csv = os.path.join("..", "3_train_test_split", "singles_train_val.csv")
-path_test_csv = os.path.join("..", "3_train_test_split", "singles_test.csv")
+path_graphs_dir = config_file_tree.PROCESSED_GRAPHS_DIR
+path_train_val_csv = os.path.join("..", "3_train_test_split", "samples_train_val.csv")
+path_test_csv = os.path.join("..", "3_train_test_split", "samples_test.csv")
 
 dir_to_save = os.path.join("trained_models")
 os.makedirs(dir_to_save, exist_ok=True)
@@ -54,33 +49,30 @@ os.makedirs(dir_to_save, exist_ok=True)
 
 """"" loading clinical data_HERCULES_DECIDER """""
 
-df_clinical_preprocessed = pd.read_csv(path_to_clinical, sep="\t")
-clinical_train_val_samples = pd.read_csv(path_train_val_csv)
-clinical_test_samples = pd.read_csv(path_test_csv)
+df_metadata_preprocessed = pd.read_csv(path_to_metadata, sep="\t")
+metadata_train_val_samples = pd.read_csv(path_train_val_csv)
+metadata_test_samples = pd.read_csv(path_test_csv)
 
-df_clinical_train_val = df_clinical_preprocessed[
-    df_clinical_preprocessed['sample_id'].isin(clinical_train_val_samples['sample_id'])
+df_metadata_train_val = df_metadata_preprocessed[
+    df_metadata_preprocessed['sample_id'].isin(metadata_train_val_samples['sample_id'])
 ].copy()
 
-df_clinical_test = df_clinical_preprocessed[
-    df_clinical_preprocessed['sample_id'].isin(clinical_test_samples['sample_id'])
+df_metadata_test = df_metadata_preprocessed[
+    df_metadata_preprocessed['sample_id'].isin(metadata_test_samples['sample_id'])
 ].copy()
-
-# TODO no clinical
-'''  
-# reverse preprocessing formatting
-df_clinical_preprocessed = df_clinical_preprocessed.replace(-1, np.nan)
 
 if task == 'classification':
-    df_clinical_preprocessed = df_clinical_preprocessed.dropna(subset=[target_column])
-    df_clinical_preprocessed[target_column] = df_clinical_preprocessed[target_column].astype(int)
-'''
+    logging.info(f"Starting training for classification task using target feature: {target_column}\n")
+    df_metadata_preprocessed = df_metadata_preprocessed.dropna(subset=[target_column])
+    df_metadata_preprocessed[target_column] = df_metadata_preprocessed[target_column].astype(int)
+else:
+    logging.info(f"Starting training on survival task using target event: {target_column}\n")
 
 logging.info("Train + Val Dataset init...")
-train_val_dataset = PatientTissueDataset(path_graphs_dir, df_clinical_train_val, task=task, target_col=target_column)
+train_val_dataset = PatientTissueDataset(path_graphs_dir, df_metadata_train_val, task=task, target_col=target_column)
 
 logging.info("Test Dataset init...")
-test_dataset = PatientTissueDataset(path_graphs_dir, df_clinical_test, task=task, target_col=target_column)
+test_dataset = PatientTissueDataset(path_graphs_dir, df_metadata_test, task=task, target_col=target_column)
 
 print_details(train_val_dataset)
 
@@ -88,8 +80,8 @@ print_details(train_val_dataset)
 """"" set model parameters """""
 
 num_genes_features = train_val_dataset.num_features  # multiomics feature vector
-num_clinical_features = len(train_val_dataset.clinical_feature_cols)  # total clinical features without the one to predict
-logging.info(f"Clinical Features found : {num_clinical_features} \n {train_val_dataset.clinical_feature_cols}")
+num_sample_features = len(train_val_dataset.sample_feature_cols)  # total sample features without the one to predict
+logging.info(f"Sample Features found : {num_sample_features} \n {train_val_dataset.sample_feature_cols}")
 
 epochs = 100
 
@@ -113,11 +105,9 @@ if task == 'classification':
     class_weights = total_samples / (len(class_counts) * class_counts.float())
     class_weights = class_weights.to(device)
 
-    logging.info("classes_counts: ")
-    logging.info(class_counts)
+    logging.info("classes_counts: " + str(class_counts))
 
-    logging.info("weights: ")
-    logging.info(class_weights)
+    logging.info("weights: " + str(class_weights))
 
     criterion = torch.nn.CrossEntropyLoss(weight=class_weights)
 
@@ -138,17 +128,17 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(train_val_dataset, y_skf))
 
     """"" clinical fold specific processing """""
     '''
-    if use_clinical:
+    if use_metadata:
         # retrieving patient ids of current train/val splits from graphs sample ids
         train_samples_ids = ["-".join(train_val_dataset[i].sample_id.split("-")[:3]) for i in train_idx]
         val_samples_ids = ["-".join(train_val_dataset[i].sample_id.split("-")[:3]) for i in val_idx]
         test_samples_ids = ["-".join(test_dataset[i].sample_id.split("-")[:3]) for i,_ in enumerate(test_dataset)]
 
-        df_clinical_train = df_clinical_preprocessed[df_clinical_preprocessed['bcr_patient_barcode'].isin(train_samples_ids)]
-        df_clinical_val = df_clinical_preprocessed[df_clinical_preprocessed['bcr_patient_barcode'].isin(val_samples_ids)]
-        df_clinical_test = df_clinical_preprocessed[df_clinical_preprocessed['bcr_patient_barcode'].isin(test_samples_ids)]
+        df_clinical_train = df_metadata_preprocessed[df_metadata_preprocessed['bcr_patient_barcode'].isin(train_samples_ids)]
+        df_clinical_val = df_metadata_preprocessed[df_metadata_preprocessed['bcr_patient_barcode'].isin(val_samples_ids)]
+        df_metadata_test = df_metadata_preprocessed[df_metadata_preprocessed['bcr_patient_barcode'].isin(test_samples_ids)]
 
-        df_clinical_train_processed, scalers, imputers, categories = nan_imputation_and_features_normalization(
+        df_clinical_train_processed, encoders, scalers, imputers, categories = nan_imputation_and_features_normalization(
             df=df_clinical_train,
             target_col=target_column,
             is_train=True,
@@ -156,10 +146,11 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(train_val_dataset, y_skf))
 
         # saving preprocessors for evaluation/model usage
         preprocessors = {
+            'encoders': encoders,'
             'scalers': scalers,
             'imputers': imputers,
             'categories': categories,
-            'clinical_feature_cols': train_val_dataset.clinical_feature_cols
+            'sample_feature_cols': train_val_dataset.sample_feature_cols
         }
         prep_save_path = os.path.join(output_dir, f"clinical_preprocessors_{task}_fold{fold + 1}.joblib")
         joblib.dump(preprocessors, prep_save_path)
@@ -168,18 +159,20 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(train_val_dataset, y_skf))
             df=df_clinical_val,
             target_col=target_column,
             is_train=False,
+            encoders=encoders,
             scalers=scalers,
             imputers=imputers,
             categories=categories,
         )
         df_clinical_processed = pd.DataFrame(pd.concat([df_clinical_train_processed, df_clinical_val_processed]))
         train_val_dataset.update_clinical_df(df_clinical_processed)
-        num_clinical_features = len(train_val_dataset.clinical_feature_cols)
+        num_sample_features = len(train_val_dataset.sample_feature_cols)
 
         df_clinical_test_processed = nan_imputation_and_features_normalization(
-            df=df_clinical_test,
+            df=df_metadata_test,
             target_col=target_column,
             is_train=False,
+            encoders=encoders,
             scalers=scalers,
             imputers=imputers,
             categories=categories,
@@ -206,7 +199,7 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(train_val_dataset, y_skf))
             out_channels=num_classes,
             heads=4,
             dropout=0.3,
-            num_clinical_features=num_clinical_features if use_clinical else 0,
+            num_sample_features=num_sample_features if use_metadata else 0,
         ).to(device)
 
     elif task == 'survival':
@@ -216,7 +209,7 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(train_val_dataset, y_skf))
             out_channels=1,
             heads=4,
             dropout_rate=0.3,
-            num_clinical_features=num_clinical_features if use_clinical else 0,
+            num_samples_features=num_sample_features if use_metadata else 0,
         ).to(device)
 
     logging.info(str(model) + "\n")

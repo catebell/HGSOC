@@ -24,13 +24,10 @@ if path.exists(output_dir):
 makedirs(output_dir, exist_ok=True)
 
 TASK = config_file_tree.TASK
+TARGET_COL = config_file_tree.TARGET_COL
 
-if TASK == 'classification':
-    TARGET_COL = config_file_tree.TARGET_COL
-
-elif TASK == 'survival':
-    TARGET_COL = config_file_tree.SURVIVAL_EVENT_COL
-    TIME_COL = config_file_tree.SURVIVAL_TIME_COL
+if TASK == 'survival':
+    TIME_COL = config_file_tree.TIME_COL
 
 
 def generate_all_graphs():

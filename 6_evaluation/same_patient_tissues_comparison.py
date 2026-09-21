@@ -10,7 +10,7 @@ import config_file_tree
 from models.MultiOmicGAT import MultiOmicGAT
 from models.MultiOmicGATSurvival import MultiOmicGATSurvival
 from PatientTissueDataset import PatientTissueDataset
-from train_eval_utils import nan_imputation_and_features_normalization
+from train_eval_utils import pre_train_imputation_encoding
 
 
 """"" setup parameters """""
@@ -56,7 +56,7 @@ scalers = preprocessors['scalers']
 imputers = preprocessors['imputers']
 categories = preprocessors['categories']
 
-df_clinical_processed = nan_imputation_and_features_normalization(
+df_clinical_processed = pre_train_imputation_encoding(
     df=df_clinical_pairs,
     target_col=target_column,
     is_train=False,
@@ -67,7 +67,7 @@ df_clinical_processed = nan_imputation_and_features_normalization(
 
 pairs_dataset = PatientTissueDataset(
     graphs_dir=path_to_pairs_graphs,
-    clinical_df=df_clinical_processed,
+    samples_metadata_df=df_clinical_processed,
     task=task,
     target_col=target_column
 )
@@ -77,7 +77,7 @@ pairs_loader = DataLoader(pairs_dataset, batch_size=1, shuffle=False)
 
 print(f"Loading model: {model_dict_path}")
 num_genes_features = pairs_dataset.num_features
-num_clinical_features = len(pairs_dataset.clinical_feature_cols)
+num_clinical_features = len(pairs_dataset.sample_feature_cols)
 
 # model init with same training configuration
 if task == 'classification':
@@ -87,7 +87,7 @@ if task == 'classification':
         out_channels=2,  # Adattare a seconda che l'head sia Survival (1) o Classification # todo check se è efficiente prenderlo automatizzato
         heads=4,
         dropout=0.3,
-        num_clinical_features=0#num_clinical_features,
+        num_sample_features=0#num_sample_features,
     ).to(device)
 
 elif task == 'survival':
@@ -97,7 +97,7 @@ elif task == 'survival':
         out_channels=1,
         heads=4,
         dropout=0.3,
-        num_clinical_features=0#num_clinical_features,
+        num_samples_features=0#num_sample_features,
     ).to(device)
 
 model.load_state_dict(torch.load(model_dict_path, map_location=device))
@@ -111,7 +111,7 @@ with torch.no_grad():
     for data in pairs_loader:
         data = data.to(device)
 
-        _, fused_emb = model(data.x, data.edge_index, data.batch, getattr(data, 'clinical_x', None))  # forward pass
+        _, fused_emb = model(data.x, data.edge_index, data.batch, getattr(data, 'metadata_x', None))  # forward pass
 
         sample_id = data.sample_id[0]
         patient_id = "-".join(sample_id.split("-")[:3])
