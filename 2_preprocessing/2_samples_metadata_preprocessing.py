@@ -26,12 +26,12 @@ def simplify_tissue(tissue_str):
     3) Fluid: Asc, Plf
     """
     if pd.isna(tissue_str):
-        return 'Unknown'
+        return "Unknown", 'Unknown'
 
     tissue_str = str(tissue_str).strip()
 
-    cleaned = re.sub(r'[LR]?\d+$', '', tissue_str, flags=re.IGNORECASE)
-    cleaned = re.sub(r'[LR]$', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'[LR]?\d+$', '', tissue_str)
+    cleaned = re.sub(r'[LR]$', '', cleaned)
 
     # based on documentation
     solid_pelvic     = ['Ova', 'Tub', 'Adn', 'Ute']
@@ -40,17 +40,17 @@ def simplify_tissue(tissue_str):
 
     for t in solid_pelvic:
         if cleaned.lower() == t.lower() or tissue_str.lower().startswith(t.lower()):
-            return 'Solid_Pelvic'
+            return cleaned, 'Solid_Pelvic'
 
     for t in fluids:
         if cleaned.lower() == t.lower() or tissue_str.lower().startswith(t.lower()):
-            return 'Fluid'
+            return cleaned, 'Fluid'
 
     for t in solid_metastases:
         if cleaned.lower() == t.lower() or tissue_str.lower().startswith(t.lower()):
-            return 'Solid_Metastasis'
+            return cleaned, 'Solid_Metastasis'
 
-    return 'Solid_Metastasis'  # fallback
+    return cleaned, 'Solid_Metastasis'  # fallback
 
 
 def preprocess_metadata():
@@ -59,7 +59,12 @@ def preprocess_metadata():
     print(f"Initial metadata shape: {df_metadata.shape}")
 
     if 'tissue' in df_metadata.columns:
-        df_metadata['tissue'] = df_metadata['tissue'].apply(simplify_tissue)
+        if 'tissue' in df_metadata.columns:
+            tissue_tuple_series = df_metadata['tissue'].apply(simplify_tissue)
+            df_metadata[['tissue', 'tissue_type']] = pd.DataFrame(
+                tissue_tuple_series.tolist(),
+                index=df_metadata.index
+            )
 
     if 'phase_label' in df_metadata.columns:
         df_metadata['phase_label'] = df_metadata['phase_label'].fillna('Unknown')
@@ -71,6 +76,7 @@ def preprocess_metadata():
         "phase",
         "phase_label",
         "tissue",
+        "tissue_type",
         "extraction"
     ]
 
@@ -83,9 +89,9 @@ def preprocess_metadata():
     )
 
     # TODO temporaneo solo per avere i campioni pre-trattametno e non recidive
-    if 'phase_label' in df_clean.columns:
-        df_clean = df_clean[df_clean['phase_label'] == 'Primary'].copy()
-        print(f"Filtered for 'Primary' phase: {len(df_clean)} samples kept.")
+    #if 'phase_label' in df_clean.columns:
+    #    df_clean = df_clean[df_clean['phase_label'] == 'Primary'].copy()
+    #    print(f"Filtered for 'Primary' phase: {len(df_clean)} samples kept.")
 
     print(f"\nLoading patient clinical data from: {clinical_filepath}")
     df_clinical = pd.read_csv(clinical_filepath, sep='\t')
