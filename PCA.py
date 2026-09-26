@@ -88,7 +88,7 @@ def run_pca_analysis(input_bulk_filepath, input_metadata_filepath, output_dir, f
 
     plt.tight_layout()
     plt.savefig(output_filepath, dpi=300, bbox_inches='tight')
-    plt.show()
+    plt.close()
 
     # ----------------------------------------------------
     # 3. STATISTICAL TEST (ANOVA on PC1)

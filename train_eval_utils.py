@@ -37,7 +37,7 @@ def get_memory_usage():
 
 """"" clinical pre training preprocessing """""
 
-# filter cols to prevent data leakage
+# filter cols_to_keep to prevent data leakage
 LEAKAGE_MAP = { # todo completare elenco rimozione colonne di leakage o superflue per la task
     # Primary Therapy Response Yes No classification:
 
@@ -247,7 +247,7 @@ def pre_train_imputation_encoding(df, task, target_col = None, is_train=True, en
             else:
                 multi_hot_matrix = encoders[col].transform(df_norm[col])
 
-            # new df with cols "col_Value"
+            # new df with cols_to_keep "col_Value"
             new_col_names = [f"{col}_{str(cls).replace(' ', '_')}" for cls in encoders[col].classes_]
             new_df = pd.DataFrame(
                 multi_hot_matrix,

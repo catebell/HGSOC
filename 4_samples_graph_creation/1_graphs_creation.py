@@ -16,7 +16,7 @@ Each graph (Data) will represent a single tissue (its genes = nodes, ppi = edges
 """"" paths and parameters """""
 
 preprocessed_dir = config_file_tree.PREPROCESSED_DATA_DIR
-preprocessed_expr_matrix_filepath = path.join(preprocessed_dir, 'bulk_expr_top_genes_log2.tsv')
+preprocessed_expr_matrix_filepath = path.join(preprocessed_dir, 'preprocessed_bulk_expr.tsv')
 
 output_dir = config_file_tree.PROCESSED_GRAPHS_DIR
 if path.exists(output_dir):

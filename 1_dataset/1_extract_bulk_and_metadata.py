@@ -1,14 +1,13 @@
 import logging
 import re
-from os import path, makedirs
-from pandas import read_csv, DataFrame
+from os import path
+from pathlib import Path
+
+from pandas import read_csv, DataFrame, concat
 from tqdm import tqdm
 
+import PCA
 import config_file_tree
-
-
-""" [!] All specific info gathered from project documentation """
-
 
 logging.basicConfig(
     level=logging.INFO,
@@ -16,15 +15,70 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 
-
 """"" paths and parameters """""
 
-dataset_dir = config_file_tree.DATASET_DIR
-RNA_bulk_raw = config_file_tree.RNA_BULK_RAW_FILE
+dataset_bulk_expr_dir = path.join(config_file_tree.DATASET_DIR, "expression_tables_updated_pipeline")
 
-makedirs(dataset_dir, exist_ok=True)
+metadata_filepath = path.join(config_file_tree.DATASET_DIR, "samples_metadata.tsv")
 
-out_metadata_filepath = path.join(dataset_dir, "samples_metadata.tsv")
+output_dir = config_file_tree.EXTRACTED_DATA_DIR
+output_metadata_filepath = path.join(output_dir, "samples_metadata.tsv")
+output_bulk_filepath = path.join(output_dir, "raw_bulk_expr.tsv")
+
+
+def load_and_merge_tpm_tables(
+    base_dir: str = dataset_bulk_expr_dir, target_filename: str = "TPMlog2+1_gene_table.tsv") -> DataFrame:
+
+    """ Searches recursively TPMlog2+1_gene_table.tsv files in the dir provided, cleaning Ensembl IDs.
+    Returns a single unified matrix (Genes x Samples). """
+
+    base_path = Path(base_dir)
+    logging.info(
+        f"Retrieving files '{target_filename}' in: {base_path.resolve()}..."
+    )
+
+    matching_files = sorted(list(base_path.glob(f"**/{target_filename}")))
+
+    if not matching_files:
+        raise FileNotFoundError(
+            f"No file '{target_filename}' found in {base_dir}."
+        )
+
+    logging.info(f"Found {len(matching_files)} files.")
+
+    dfs = []
+    for fpath in tqdm(matching_files, desc="Loading TPM tables"):
+        df = read_csv(fpath, sep="\t", index_col=0)
+
+        # Ensembl ID cleaned (es. ENSG00000000003.16 -> ENSG00000000003)
+        df.index = df.index.astype(str).str.split(".").str[0]
+
+        if df.index.has_duplicates:
+            df = df.groupby(df.index).max()  # max expression in case of duplicates
+
+        dfs.append(df)
+
+    logging.info("Merging tables by columns...")
+    merged_bulk = concat(dfs, axis=1)
+
+    if merged_bulk.columns.duplicated().any():
+        n_dup = merged_bulk.columns.duplicated().sum()
+        logging.warning(
+            f"Found {n_dup} duplicated samples, keeping first occurrence."
+        )
+        merged_bulk = merged_bulk.loc[:, ~merged_bulk.columns.duplicated()]
+
+    merged_bulk = merged_bulk.fillna(0.0)
+
+    merged_bulk.reset_index(inplace=True)
+    merged_bulk.rename(columns={merged_bulk.columns[0]: "gene_id"}, inplace=True)
+
+    logging.info(
+        f"Raw matrix created: {merged_bulk.shape[0]} genes x {merged_bulk.shape[1]-1} samples. Saving to {output_bulk_filepath}..."
+    )
+
+    merged_bulk.to_csv(output_bulk_filepath, sep="\t", index=False)
+    return merged_bulk
 
 
 def parse_sample_id(sample_id):
@@ -117,13 +171,12 @@ def parse_sample_id(sample_id):
     return info
 
 
-def get_hercules_metadata():
-    logging.info(f"Loading matrix (genes x samples) from {RNA_bulk_raw.split(path.sep)[-1]}...")
-    df_bulk = read_csv(RNA_bulk_raw, sep="\t")
-
-    sample_cols = list(df_bulk.columns[1:])
+def extract_hercules_metadata(df_bulk):
+    """ [!] All specific info gathered from project documentation """
 
     logging.info("Metadata extraction from samples IDs...")
+    sample_cols = list(df_bulk.columns[1:])
+
     metadata_list = []
     for sample_id in tqdm(sample_cols):
         parsed_info = parse_sample_id(sample_id)
@@ -132,10 +185,16 @@ def get_hercules_metadata():
 
     df_metadata = DataFrame(metadata_list)
 
-    df_metadata.to_csv(out_metadata_filepath, index=False, sep='\t')
-    logging.info(f"Metadata saved in: {out_metadata_filepath}\n")
+    df_metadata.to_csv(output_metadata_filepath, index=False, sep='\t')
+    logging.info(f"Metadata saved in: {output_metadata_filepath}\n")
 
 
 if __name__ == "__main__":
-    get_hercules_metadata()
-    logging.info("DONE!\n\n")
+
+    expr_df = load_and_merge_tpm_tables()
+
+    extract_hercules_metadata(expr_df)
+
+    if config_file_tree.RUN_PCA:
+        PCA.run_pca_analysis(output_bulk_filepath, output_metadata_filepath, output_dir)
+    print("\nDONE!")

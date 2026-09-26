@@ -11,10 +11,10 @@ output_filepath = path.join(output_dir, "preprocessed_cn.tsv")
 
 
 print("Loading copy numbers data...")
-cols = ["ID", "Gene", "type", "sample", "nMajor", "nMinor", "purifiedLogR", "breaksInGene"]
+cols_to_keep = ["ID", "Gene", "type", "sample", "nMajor", "nMinor", "purifiedLogR", "breaksInGene"]
 # "nProbesCr", "nProbesAf", "logR", "baf", "nAraw", "nBraw", "purifiedBaf", "purifiedLoh", "CNstatus", "LOHstatus", "minPurifiedLogR", "maxPurifiedLogR"
-df_cnv_raw = read_csv(cnv_filepath, sep='\t', usecols=cols,
-          dtype={
+df_cnv_raw = read_csv(cnv_filepath, sep='\t', usecols=cols_to_keep,
+                      dtype={
               'type': 'category',
               'sample': 'category',
               'nMajor': 'float',
@@ -22,10 +22,17 @@ df_cnv_raw = read_csv(cnv_filepath, sep='\t', usecols=cols,
               'purifiedLogR': 'float',
               'breaksInGene': 'float',
           })
-df_cnv_raw.info(memory_usage='deep')
-df_cnv_raw = df_cnv_raw[df_cnv_raw['type'] == 'protein_coding'].copy()  # df_cnv_raw.query("type == 'protein_coding'").copy()
+
+df_cnv_raw = df_cnv_raw[df_cnv_raw['type'] == 'protein_coding'].copy()
+
 df_cnv_raw = df_cnv_raw.drop(columns=['type'])
 
-# todo keep only top genes?
+# removing Cell Line values
+df_cnv_raw = df_cnv_raw[
+    df_cnv_raw['sample'].str.contains("DNA", case=False, na=False)
+    & ~df_cnv_raw['sample'].str.contains("CL", case=False, na=False)
+].copy()
+
+# todo keep only top genes by cnv variance? then union (set) with top rna
 
 df_cnv_raw.to_csv(output_filepath, sep='\t', index=False)

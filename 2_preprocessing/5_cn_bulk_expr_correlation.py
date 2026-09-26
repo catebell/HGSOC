@@ -11,16 +11,16 @@ import config_file_tree
 
 """"" paths and parameters """""
 
-use_top_genes = False  # if False, uses all genes appearing in RNA matrix
+use_top_genes = True  # if False, uses all genes appearing in RNA matrix
 use_driver_genes = False  # if True, uses known driver genes
 
 preprocessed_dir = config_file_tree.PREPROCESSED_DATA_DIR
 
-rna_filepath = path.join(preprocessed_dir, "bulk_expr_top_genes_log2.tsv")
+rna_filepath = path.join(preprocessed_dir, "preprocessed_bulk_expr.tsv")
 top_genes_filepath = path.join(preprocessed_dir, "selected_top_genes.tsv")
 cnv_filepath = path.join(preprocessed_dir, "preprocessed_cn.tsv")
 metadata_filepath = path.join(preprocessed_dir, "preprocessed_samples_metadata.tsv")
-known_drivers_filepath = path.join("..", "2_preprocessing", "known_driver_genes", "IntOGen-DriverGenes_OVT.tsv")
+known_drivers_filepath = config_file_tree.DRIVER_GENES_FILE
 
 output_dir = path.join(preprocessed_dir, "correlations")
 makedirs(output_dir, exist_ok=True)
@@ -210,7 +210,7 @@ def plot_and_summarize_correlations(df_sample_corr, df_gene_corr, cn_values):
     plt.tight_layout()
     plot_output_path = path.join(output_dir, "cnv_rna_correlation_summary.png")
     plt.savefig(plot_output_path, dpi=300)
-    plt.show()
+    plt.close()
 
     sig_pos = df_gene_corr[(df_gene_corr['fdr'] < 0.05) & (df_gene_corr['spearman_rho'] > 0)]
     sig_neg = df_gene_corr[(df_gene_corr['fdr'] < 0.05) & (df_gene_corr['spearman_rho'] < 0)]
@@ -239,6 +239,7 @@ if __name__ == "__main__":
     df_cn = pd.read_csv(cnv_filepath, sep='\t')
 
     gene_name_map = dict(zip(df_cn['Gene'].str.upper(), df_cn['ID']))
+    gene_subset = None
 
     if use_driver_genes and path.exists(known_drivers_filepath):
         gene_subset = pd.read_csv(known_drivers_filepath, sep='\t')
@@ -275,7 +276,7 @@ if __name__ == "__main__":
 
     rna_sample_map = {col: clean_sample_id(col) for col in df_rna.columns}  # clean samples IDs
     df_rna = df_rna.rename(columns=rna_sample_map)
-    df_rna = df_rna.T.groupby(level=0).aggregate('mean').T  # eventual duplicated cols
+    df_rna = df_rna.T.groupby(level=0).aggregate('mean').T  # eventual duplicated cols_to_keep
 
     # keep only top N genes identified by expr variance
     df_cnv_filtered = df_cn[df_cn['ID'].isin(valid_genes)].copy()
@@ -283,7 +284,7 @@ if __name__ == "__main__":
     df_cnv_filtered['tot_copies'] = df_cnv_filtered['nMajor'] + df_cnv_filtered['nMinor']
 
     # CNV metric chosen to correlate
-    cn_values = 'purifiedLogR'  # or tot_copies
+    cn_values = 'tot_copies'  # purifiedLogR or tot_copies
     df_cnv_pivot = df_cnv_filtered.pivot_table(
         index='ID',
         columns='sample',

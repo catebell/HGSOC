@@ -183,7 +183,7 @@ def clean_survival(val):
 
 def process_survival_time_features(df):
     """
-    - Unifies temporal cols in intervals (OS, PFS e PFI)
+    - Unifies temporal cols_to_keep in intervals (OS, PFS e PFI)
     - Computes PFI classification target: 1 if Platinum resistant (PFI < 180 days), 0 else (Platinum sensible)
     """
     df = df.copy()

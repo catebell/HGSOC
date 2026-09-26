@@ -1,18 +1,14 @@
 from os import path, makedirs
 import re
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
 
 import config_file_tree
 
 extracted_dir = config_file_tree.EXTRACTED_DATA_DIR
-preprocessed_dir = config_file_tree.PREPROCESSED_DATA_DIR
-metadata_filepath = path.join(extracted_dir, "raw_samples_metadata.tsv")
-clinical_filepath = path.join(preprocessed_dir, "preprocessed_clinical_data.tsv")
+metadata_filepath = path.join(extracted_dir, "samples_metadata.tsv")
 
 output_dir = config_file_tree.PREPROCESSED_DATA_DIR
-makedirs(output_dir, exist_ok=True)
-
+clinical_filepath = path.join(output_dir, "preprocessed_clinical_data.tsv")
 output_metadata_filepath = path.join(output_dir, "preprocessed_samples_metadata.tsv")
 
 
@@ -77,6 +73,7 @@ def preprocess_metadata():
         "phase_label",
         "tissue",
         "tissue_type",
+        "sample_class",
         "extraction"
     ]
 
@@ -92,7 +89,8 @@ def preprocess_metadata():
     #if 'phase_label' in df_clean.columns:
     #    df_clean = df_clean[df_clean['phase_label'] == 'Primary'].copy()
     #    print(f"Filtered for 'Primary' phase: {len(df_clean)} samples kept.")
-
+    # TODO attenzione perchà filtrare per i dati clinici mostra batch effect (prevenire con filtro coorte per batch effect?)
+    '''
     print(f"\nLoading patient clinical data from: {clinical_filepath}")
     df_clinical = pd.read_csv(clinical_filepath, sep='\t')
 
@@ -108,7 +106,6 @@ def preprocess_metadata():
     # keep only samples having associated clinical data
     df_clean = pd.merge(df_clean, df_clinical, on='patient_id', how='inner')
     print(f"Merged samples with clinical data. Shape after merge: {df_clean.shape}")
-
 
 
     """"" filter for eventual rare targets """""
@@ -137,7 +134,7 @@ def preprocess_metadata():
             for cls in rare_classes:
                 print(f"  - Class '{cls}': {patient_counts[cls]} patients")
             df_clean = df_clean[~df_clean[target_col].isin(rare_classes)].copy()  # filtered dataset
-
+    '''
 
     '''
     """"" encoding for target column """""
