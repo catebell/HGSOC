@@ -12,7 +12,7 @@ from torch_geometric.loader import DataLoader
 
 import config_file_tree
 from train_eval_utils import  pre_train_imputation_encoding
-from PatientTissueDataset import PatientTissueDataset
+from SampleGraphDataset import PatientTissueDataset
 from models.MultiOmicGAT import MultiOmicGAT
 from models.MultiOmicGATSurvival import MultiOmicGATSurvival, CoxPHLoss
 from train_functions import train_epoch, evaluate, train_epoch_survival, evaluate_survival

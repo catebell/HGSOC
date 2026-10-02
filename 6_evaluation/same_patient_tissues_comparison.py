@@ -9,7 +9,7 @@ from torch_geometric.loader import DataLoader
 import config_file_tree
 from models.MultiOmicGAT import MultiOmicGAT
 from models.MultiOmicGATSurvival import MultiOmicGATSurvival
-from PatientTissueDataset import PatientTissueDataset
+from SampleGraphDataset import PatientTissueDataset
 from train_eval_utils import pre_train_imputation_encoding
 
 

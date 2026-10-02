@@ -4,16 +4,18 @@ from sklearn.model_selection import train_test_split
 
 import config_file_tree
 
-'''
-Split at patient level: multiple tissues belonging to the same patient must end up in the same split.
-'''
+"""
+Split based on metadata
+"""
 
 """"" paths and parameters """""
 
-split_by_patient = True
+split_by_patient = True  # multiple tissues belonging to the same patient must end up in the same split
 
 preprocessed_data_dir = config_file_tree.PREPROCESSED_DATA_DIR
-metadata_filepath = os.path.join(preprocessed_data_dir, 'preprocessed_samples_metadata.tsv')
+#metadata_filepath = os.path.join(preprocessed_data_dir, 'preprocessed_samples_metadata.tsv')
+graph_dir = config_file_tree.PROCESSED_GRAPHS_DIR
+metadata_filepath = os.path.join(graph_dir, 'associated_metadata.tsv')
 
 TASK = config_file_tree.TASK
 TARGET_COL = config_file_tree.TARGET_COL  # task label to stratify on
@@ -28,6 +30,8 @@ TRAIN_SIZE = 0.7
 TEST_SIZE = 0.15
 VAL_SIZE = 0.15
 RANDOM_SEED = 7
+
+MIN_PATIENTS_PER_CLASS = 5
 
 
 """"" samples selection and deduplication """""
@@ -44,9 +48,7 @@ print(f"Deduplicated samples in mapping: {len(df_metadata)} ({df_metadata['patie
 print("-" * 50)
 
 
-""""" single tissues train/test separation """""
-
-df_clean = df_metadata.copy()
+df_clean = df_metadata
 
 if TASK == 'survival':
     print(f"\n--- Task: SURVIVAL ---\n")
@@ -66,31 +68,49 @@ ratio_test = TEST_SIZE / ratio_val_test  # 0.50
 
 if split_by_patient:
     print(f"\n[PATIENT-LEVEL stratified split]")
+    all_classes = df_clean[TARGET_COL].value_counts()
+
     df_patients = df_clean[['patient_id', TARGET_COL]].drop_duplicates(subset=['patient_id'], keep='first')
 
+    patients_per_class = df_patients[TARGET_COL].value_counts()
+    valid_classes = patients_per_class[patients_per_class >= MIN_PATIENTS_PER_CLASS].index
+    removed_classes = set(all_classes.index) - set(valid_classes)
+
+    if removed_classes:
+        print(f"[FILTER] Removed classes with <  {MIN_PATIENTS_PER_CLASS} unique patients: {removed_classes}")
+        df_patients = df_patients[df_patients[TARGET_COL].isin(valid_classes)].copy()
+        df_clean = df_metadata[df_metadata[TARGET_COL].isin(valid_classes)].copy()
+
     # split train / val+test
-    train_pts, val_test_pts = train_test_split(
-        df_patients['patient_id'],
+    train_pts_df, val_test_pts_df = train_test_split(
+        df_patients,
         test_size=ratio_val_test,
         random_state=RANDOM_SEED,
         stratify=df_patients[TARGET_COL]
     )
 
     # split val / test (remaining patients)
-    val_test_targets = df_patients[df_patients['patient_id'].isin(val_test_pts)][TARGET_COL]
-    val_pts, test_pts = train_test_split(
-        val_test_pts,
+    val_pts_df, test_pts_df = train_test_split(
+        val_test_pts_df,
         test_size=ratio_test,
         random_state=RANDOM_SEED,
-        stratify=val_test_targets
+        stratify=val_test_pts_df[TARGET_COL]
     )
 
     # patient mapping to retrieve related tissues
-    df_train = df_clean[df_clean['patient_id'].isin(train_pts)].copy()
-    df_val   = df_clean[df_clean['patient_id'].isin(val_pts)].copy()
-    df_test  = df_clean[df_clean['patient_id'].isin(test_pts)].copy()
+    df_train = df_clean[df_clean['patient_id'].isin(train_pts_df['patient_id'])].copy()
+    df_val   = df_clean[df_clean['patient_id'].isin(val_pts_df['patient_id'])].copy()
+    df_test  = df_clean[df_clean['patient_id'].isin(test_pts_df['patient_id'])].copy()
 else:
     print(f"\n[SAMPLE-LEVEL stratified split]")
+
+    class_counts = df_metadata[TARGET_COL].value_counts()
+    valid_classes = class_counts[class_counts >= MIN_PATIENTS_PER_CLASS].index
+    removed_classes = set(class_counts.index) - set(valid_classes)
+
+    if removed_classes:
+        print(f"[FILTER] Removed classes with < {MIN_PATIENTS_PER_CLASS} samples: {removed_classes}")
+        df_clean = df_metadata[df_metadata[TARGET_COL].isin(valid_classes)].copy()
 
     # split train / val+test (sample level)
     df_train, df_val_test = train_test_split(

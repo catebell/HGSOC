@@ -4,7 +4,7 @@ import pandas as pd
 import torch
 from torch_geometric.data import Dataset
 
-# columns about to be excluded from features
+# metadata columns about to be excluded from features
 id_and_string_cols = ['sample_id', 'patient_id', 'cohort', 'phase', 'extraction',]
 
 leaking_cols = []

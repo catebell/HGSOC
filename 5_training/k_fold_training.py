@@ -2,6 +2,7 @@ import logging
 import os
 
 import pandas as pd
+import sklearn
 import torch
 from sklearn.model_selection import StratifiedKFold
 from torch.utils.data import Subset
@@ -10,12 +11,11 @@ from tqdm import tqdm
 
 import config_file_tree
 from train_eval_utils import print_details, pre_train_imputation_encoding
-from PatientTissueDataset import PatientTissueDataset
+from SampleGraphDataset import PatientTissueDataset
 from models.MultiOmicGAT import MultiOmicGAT
 from models.MultiOmicGATSurvival import MultiOmicGATSurvival, CoxPHLoss
 from train_functions import train_epoch, evaluate, train_epoch_survival, evaluate_survival
 
-# TODO al momento clinical = samples metadata
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,9 +39,10 @@ target_column = config_file_tree.TARGET_COL
 
 path_to_metadata = os.path.join(config_file_tree.PREPROCESSED_DATA_DIR, "preprocessed_samples_metadata.tsv")
 
+path_train_val_csv = os.path.join(config_file_tree.SPLIT_DIR, "samples_train_val.csv")
+path_test_csv = os.path.join(config_file_tree.SPLIT_DIR, "samples_test.csv")
+
 path_graphs_dir = config_file_tree.PROCESSED_GRAPHS_DIR
-path_train_val_csv = os.path.join("..", "3_train_test_split", "samples_train_val.csv")
-path_test_csv = os.path.join("..", "3_train_test_split", "samples_test.csv")
 
 dir_to_save = os.path.join("trained_models")
 os.makedirs(dir_to_save, exist_ok=True)
@@ -55,16 +56,19 @@ metadata_test_samples = pd.read_csv(path_test_csv)
 
 df_metadata_train_val = df_metadata_preprocessed[
     df_metadata_preprocessed['sample_id'].isin(metadata_train_val_samples['sample_id'])
-].copy()
+].dropna(subset=[target_column]).copy()
 
 df_metadata_test = df_metadata_preprocessed[
     df_metadata_preprocessed['sample_id'].isin(metadata_test_samples['sample_id'])
-].copy()
+].dropna(subset=[target_column]).copy()
 
 if task == 'classification':
     logging.info(f"Starting training for classification task using target feature: {target_column}\n")
-    df_metadata_preprocessed = df_metadata_preprocessed.dropna(subset=[target_column])
-    df_metadata_preprocessed[target_column] = df_metadata_preprocessed[target_column].astype(int)
+
+    label_encoder = sklearn.preprocessing.LabelEncoder()  # TODO handle in function? per ora non ci sono unknown perchè fittato su completo
+    df_metadata_train_val[target_column] = label_encoder.fit_transform(df_metadata_train_val[target_column])
+    df_metadata_test[target_column] = label_encoder.fit_transform(df_metadata_test[target_column])
+    print("Classes identified:\n" + str(label_encoder.classes_))
 else:
     logging.info(f"Starting training on survival task using target event: {target_column}\n")
 

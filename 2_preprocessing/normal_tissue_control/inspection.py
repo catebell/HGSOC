@@ -21,7 +21,8 @@ makedirs(output_dir, exist_ok=True)
 def process_cnv_data(
         gnomad_filepath: str = "gnomad.v4.1.sv.sites.bed.gz",
         gencode_filepath: str = "gencode.v36.annotation.gtf",
-        min_germline_freq: float = 0.01) -> pd.DataFrame:
+        min_germline_freq: float = 0.05,
+        min_overlap_frac: float = 0.50,) -> pd.DataFrame:
     """ Copy Number normal tissue control.
     Processes CNV somatic data filtering germinal variants (gnomAD/GENCODE). """
 
@@ -58,6 +59,10 @@ def process_cnv_data(
 
         normal_cnvs = normal_cnvs[(normal_cnvs["FILTER"] == "PASS")].copy()  # validity filter
 
+        # dataset considers variations on copy numbers (purifiedLogR), so kept only germlines that alter the number of copies
+        cnv_types = ["DEL", "DUP", "MCNV", "CNV"]
+        normal_cnvs = normal_cnvs[normal_cnvs["svtype"].isin(cnv_types)].copy()
+
         # germinal freq. unified: AF if present, else CN_NONREF_FREQ
         normal_cnvs["germline_pop_freq"] = normal_cnvs["AF"].fillna(normal_cnvs["CN_NONREF_FREQ"])
 
@@ -69,19 +74,65 @@ def process_cnv_data(
         )
         pr_normal = pr.PyRanges(common_germline_prep)
 
-
         print("GTF file upload...\n")
         pr_genes = pr.read_gtf(gencode_filepath)
-        pr_genes = pr_genes[pr_genes.Feature == "gene"]
+        pr_exons = pr_genes[pr_genes.Feature == "exon"].merge(by="gene_id")
 
-        print("Mapping...\n")
-        joined = pr_genes.join(pr_normal, suffix="_normal")
+        # Computing total exons length for every gene (sum of exons area)
+        df_exons = pr_exons.as_df()
+        df_exons["gene_id"] = df_exons["gene_id"].str.split(".").str[0]
+        df_exons["exon_len"] = df_exons["End"] - df_exons["Start"]
+        gene_total_exons = (
+            df_exons.groupby("gene_id")["exon_len"].sum().to_dict()
+        )
+
+        print("Mapping and calculating cumulative exon overlaps...\n")
+        joined = pr_exons.join(pr_normal, suffix="_normal")
         df_joined = joined.as_df()
         df_joined["gene_id"] = df_joined["gene_id"].str.split(".").str[0]
 
+        # ==================== CALCOLO SOGLIA OVERLAP ====================
+        # Calcolo overlap in bp tra variante germinale e singolo esone
+        overlap_start = np.maximum(
+            df_joined["Start"].values, df_joined["Start_normal"].values
+        )
+        overlap_end = np.minimum(
+            df_joined["End"].values, df_joined["End_normal"].values
+        )
+        df_joined["overlap_bp"] = np.maximum(0, overlap_end - overlap_start)
+
+        # sum of exon basis covered for each germinal variant and gene
+        cov_summary = (
+            df_joined.groupby(
+                ["gene_id", "Start_normal", "End_normal", "svtype"],
+                observed=True
+            )
+            .agg(
+                covered_exon_bp=("overlap_bp", "sum"),
+                germline_pop_freq=("germline_pop_freq", "max"),
+                germline_nfe_freq=("germline_nfe_freq", "max"),
+            )
+            .reset_index()
+        )
+
+        # 5. Frazione dell'esoma del gene coperto dalla variante germinale
+        cov_summary["total_exon_bp"] = cov_summary["gene_id"].map(
+            gene_total_exons
+        )
+        cov_summary["exon_overlap_frac"] = (
+                cov_summary["covered_exon_bp"] / cov_summary["total_exon_bp"]
+        )
+
+        # 6. Filtro: la CNV germinale deve coprire almeno il 50% dell'esoma complessivo del gene
+        valid_germline = cov_summary[
+            cov_summary["exon_overlap_frac"] >= min_overlap_frac
+            ].copy()
+        # ================================================================
+
         # gene_id aggregation: max germinal freq found
+        print("Aggregating genes...\n")
         normal_gene_lookup = (
-            df_joined.groupby("gene_id")
+            valid_germline.groupby("gene_id")
             .agg(
                 germline_pop_freq=("germline_pop_freq", "max"),
                 germline_nfe_freq=("germline_nfe_freq", "max"),
@@ -106,14 +157,16 @@ def process_cnv_data(
     )
 
     df_cn_dataset["somatic_purifiedLogR"] = df_cn_dataset["purifiedLogR"]
-
-    gene_col = "ID" if "ID" in df_cn_dataset.columns else "gene_id"
+    gene_col = "gene_id"
 
     # somatic filter (purifiedLogR = 0 if common germinal)
     df_cn_dataset["is_common_germline"] = df_cn_dataset[gene_col].isin(germline_genes)
     #df_cn_dataset.loc[df_cn_dataset["is_common_germline"], "somatic_purifiedLogR"] = 0.0  # kept, will have a different style
 
     print("CN dataset filtering complete! 'somatic_purifiedLogR' successfully generated.\n")
+    print(f"Totale geni con CNV germinale comune individuati: {len(germline_genes)}")  # TODO check con esoni o no
+    print(
+        f"Righe somatiche contrassegnate come germinali: {df_cn_dataset['is_common_germline'].sum()} su {len(df_cn_dataset)}")
     return  df_cn_dataset
 
 
@@ -259,7 +312,7 @@ def integrate_cnv_rna(df_cn: pd.DataFrame, df_rna: pd.DataFrame) -> pd.DataFrame
 
     merged = df_cn.merge(
         df_rna[rna_cols],
-        left_on=["ID", "sample"],
+        left_on=["gene_id", "sample"],
         right_on=[rna_gene_col, "sample"],
         how="left",
     )

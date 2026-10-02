@@ -2,11 +2,11 @@ import re
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import MultiLabelBinarizer
 
 
 def correct_histology(row):
-    re_eval = row['Histology_re_evaluated_notes']  # if there's one, replace Histology value
+    """ If note is present, replace Histology value. """
+    re_eval = row['Histology_re_evaluated_notes']
 
     if pd.notna(re_eval) and str(re_eval).strip() != '':
         val = str(re_eval).lower().strip()
@@ -17,8 +17,8 @@ def correct_histology(row):
             return 'low grade serous'
         elif 'endometr' in val:
             return 'endometrioid'
-        elif 'carcinosarcoma' in val:
-            return 'carcinosarcoma'
+        elif 'hgs' in val and 'carcinosarcoma' in val:
+            return 'hgs with carcinosarcoma'
 
         return val
 
@@ -156,8 +156,7 @@ def map_primary_outcome_binary(val):
 
 def clean_survival(val):
     """
-    - event_os: target event for later Overall Survival (1 = deceduto per qualsiasi causa, 0 = alive/censored)
-    - Survival --> Disease-Specific Survival event (1 = deceased by cancer, 0 = alive or different death cause/censored)
+    - Survival --> (dead/1 if Cause_of_death = deceased by cancer, alive/0 = if alive or different death cause/censored)
     """
 
     if pd.isna(val):
@@ -174,11 +173,9 @@ def clean_survival(val):
     #    return 'dead_reason_unknown'
     # return 'unknown'
 
-    if 'alive' in val_str:
-        return 'alive'
-    elif 'cancer' in val_str:
+    if 'cancer' in val_str:
         return 'dead'  # deceased because of cancer
-    return np.nan
+    return 'censored'
 
 
 def process_survival_time_features(df):
@@ -211,6 +208,16 @@ def process_survival_time_features(df):
 
     return df
 
+def assign_pfi_class(days):
+    """ Creation of target class PFI status """
+    if pd.isna(days):
+        return None
+    elif days < 180:   # < 6 mesi (Platino-Resistant)
+        return 0
+    elif days > 365:  # > 1 anno (Platino-Sensible)
+        return 1
+    else:
+        return None   # In-between category (6-12 mesi) --> excluded if binary task
 
 def clean_brca_mutation(row):
     """
@@ -219,7 +226,7 @@ def clean_brca_mutation(row):
     - 0 (wild_type): No mutation registered
     - NaN / 'unknown': not tested or missing data
     """
-    stat = str(row.get('BRCA_mutation_status', ''))
+    stat = str(row.get('BRCA_mutation_status_in_Clinical_test', ''))
     decider = str(row.get('BRCA_any_in_Decider', ''))
     any_flag = str(row.get('BRCA_mutation_any', ''))
 

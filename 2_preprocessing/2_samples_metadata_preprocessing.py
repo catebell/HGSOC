@@ -1,5 +1,5 @@
-from os import path, makedirs
 import re
+from os import path
 import pandas as pd
 
 import config_file_tree
@@ -17,7 +17,7 @@ def simplify_tissue(tissue_str):
     Tissues code cleaned of laterality (L/R) and numerical indices.
     E.g.: OvaR1 -> Ova, Ome1 -> Ome, TubR2 -> Tub, Asc1 -> Asc, LN1 -> LN.
     Then maps to 3 anatomical groups:
-    1) Solid_Pelvic: Ova, Tub, Adn, Ute
+    1) Solid_Pelvic: Ova, Tub, Adn, Ute, Vag
     2) Solid_Metastasis: Ome, Per, Mes, Bow, LN, Oth
     3) Fluid: Asc, Plf
     """
@@ -26,27 +26,27 @@ def simplify_tissue(tissue_str):
 
     tissue_str = str(tissue_str).strip()
 
-    cleaned = re.sub(r'[LR]?\d+$', '', tissue_str)
-    cleaned = re.sub(r'[LR]$', '', cleaned)
-
     # based on documentation
-    solid_pelvic     = ['Ova', 'Tub', 'Adn', 'Ute']
+    solid_pelvic     = ['Ova', 'Tub', 'Adn', 'Ute', 'Vag']
     fluids = ['Asc', 'Plf']
     solid_metastases = ['Ome', 'Per', 'Mes', 'Bow', 'LN', 'Oth']
 
     for t in solid_pelvic:
-        if cleaned.lower() == t.lower() or tissue_str.lower().startswith(t.lower()):
-            return cleaned, 'Solid_Pelvic'
+        if tissue_str.lower().startswith(t.lower()):
+            return t, 'Solid_Pelvic'
 
     for t in fluids:
-        if cleaned.lower() == t.lower() or tissue_str.lower().startswith(t.lower()):
-            return cleaned, 'Fluid'
+        if tissue_str.lower().startswith(t.lower()):
+            return t, 'Fluid'
 
     for t in solid_metastases:
-        if cleaned.lower() == t.lower() or tissue_str.lower().startswith(t.lower()):
-            return cleaned, 'Solid_Metastasis'
+        if tissue_str.lower().startswith(t.lower()):
+            return t, 'Solid_Metastasis'
 
-    return cleaned, 'Solid_Metastasis'  # fallback
+    if tissue_str.lower().startswith('tum'):  # generic tumor case
+        return 'Oth', 'Solid_Metastasis'
+
+    return tissue_str, 'Solid_Metastasis'  # fallback
 
 
 def preprocess_metadata():
@@ -65,8 +65,40 @@ def preprocess_metadata():
     if 'phase_label' in df_metadata.columns:
         df_metadata['phase_label'] = df_metadata['phase_label'].fillna('Unknown')
 
+    if 'sample_class' in df_metadata.columns:
+        n_before = len(df_metadata)
+        df_metadata = df_metadata[df_metadata['sample_class'] == 'BulkTissue']
+        print(f"Discarded {n_before - len(df_metadata)} samples with sample_class != 'BulkTissue' (CellLines, OrganoidLines, ...).")
+
+    if 'treatment' in df_metadata.columns:
+        n_before = len(df_metadata)
+        df_metadata = df_metadata[df_metadata['treatment'] == 'Untreated']
+        print(f"Discarded {n_before - len(df_metadata)} samples with treatment != 'Untreated'.")
+
+    if 'extraction' in df_metadata.columns:
+        n_before = len(df_metadata)
+        forbidden_pattern = r'set|dup'
+        has_suffix = df_metadata['extraction'].astype(str).str.contains(forbidden_pattern, case=False, na=False)
+        df_metadata = df_metadata[~has_suffix]
+        print(f"Discarded {n_before - len(df_metadata)} samples with suffixes _set or _dup.")
+
+        # keep only updated versioning: _Data(number)
+        n_before = len(df_metadata)
+        has_data = df_metadata['extraction'].astype(str).str.contains(r'Data\d+', case=False, na=False)
+        data_sample_ids = df_metadata[has_data]['sample_id']
+        # sample_id without 'Data(number)' (es. 'H001_pOvaR1_RNA1_Data2' -> 'H001_pOvaR1_RNA1')
+        base_sample_ids_to_drop = set(
+            data_sample_ids.apply(lambda s: re.sub(r'(_)?Data\d+', '', str(s), flags=re.IGNORECASE))
+        )
+        if base_sample_ids_to_drop:
+            df_metadata = df_metadata[~df_metadata['sample_id'].isin(base_sample_ids_to_drop)]
+        print(
+            f"Discarded {n_before - len(df_metadata)} samples by keeping updated sequencing (_Data2).")
+
+
     features_to_keep = [
         "sample_id",
+        "sample",
         "patient_id",
         "cohort",
         "phase",
@@ -74,7 +106,8 @@ def preprocess_metadata():
         "tissue",
         "tissue_type",
         "sample_class",
-        "extraction"
+        "extraction",
+        "treatment"
     ]
 
     available_features = [col for col in features_to_keep if col in df_metadata.columns]
@@ -85,75 +118,21 @@ def preprocess_metadata():
         lambda t: 'yes' if any(t.startswith(prefix) for prefix in fluid_prefixes) else 'no'
     )
 
-    # TODO temporaneo solo per avere i campioni pre-trattametno e non recidive
-    #if 'phase_label' in df_clean.columns:
-    #    df_clean = df_clean[df_clean['phase_label'] == 'Primary'].copy()
-    #    print(f"Filtered for 'Primary' phase: {len(df_clean)} samples kept.")
-    # TODO attenzione perchà filtrare per i dati clinici mostra batch effect (prevenire con filtro coorte per batch effect?)
-    '''
     print(f"\nLoading patient clinical data from: {clinical_filepath}")
     df_clinical = pd.read_csv(clinical_filepath, sep='\t')
 
-    # merging with patient clincal data (maybe da non fare se poi gli embeddings verranno creati a due livelli)
-    if 'Patient_cohort_code_Patient_Card' in df_clinical.columns:
-        df_clinical = df_clinical.rename(columns={'Patient_cohort_code_Patient_Card': 'patient_id'})
-    elif df_clinical.index.name == 'Patient_cohort_code_Patient_Card':
-        df_clinical = df_clinical.reset_index().rename(columns={'Patient_cohort_code_Patient_Card': 'patient_id'})
+    # filter out samples of patients with no clinical record
+    clinical_patients = df_clinical['Patient_cohort_code_Patient_Card']
+    n_patients = len(df_metadata['patient_id'].unique())
+    df_metadata = df_metadata[df_metadata['patient_id'].str.lower().isin(clinical_patients)]
+    print(f"Discarded {n_patients - len(df_metadata['patient_id'].unique())} patients with no clinical record.")
 
-    df_clean['patient_id'] = df_clean['patient_id'].astype(str).str.lower().str.strip()
-    df_clinical['patient_id'] = df_clinical['patient_id'].astype(str).str.lower().str.strip()
+    # filter out samples of patient with Histology != "hgsc"
+    hgsc_patients = df_clinical[df_clinical['Histology'] == 'high grade serous']['Patient_cohort_code_Patient_Card']
+    n_patients = len(df_metadata['patient_id'].unique())
+    df_metadata = df_metadata[df_metadata['patient_id'].str.lower().isin(hgsc_patients)]
+    print(f"Discarded {n_patients - len(df_metadata['patient_id'].unique())} patients not strictly High Grade Serous OC.")
 
-    # keep only samples having associated clinical data
-    df_clean = pd.merge(df_clean, df_clinical, on='patient_id', how='inner')
-    print(f"Merged samples with clinical data. Shape after merge: {df_clean.shape}")
-
-
-    """"" filter for eventual rare targets """""
-
-    target_col = config_file_tree.TARGET_COL
-    if target_col not in df_clean.columns:
-        raise KeyError(f"Chosen target column '{target_col}' does not exists in samples metadata!"
-                       f"Available columns: {list(df_clean.columns)}")
-
-    print("Excluding samples where target = nan...")
-    df_clean = df_clean.dropna(subset=[target_col]).copy()
-    if config_file_tree.TASK == 'survival':
-        time_col = config_file_tree.TIME_COL
-        df_clean = df_clean[df_clean[time_col] > 0]  # remove non-valid times
-        df_clean = df_clean.dropna(subset=[time_col])
-
-    if config_file_tree.TASK == 'classification':
-        # drop patients with less than min_patients_per_class occurrences (not stratifiable)
-        min_patients_per_class = 3  # 3 = minimum for train/val/test split (split based on patient_id)
-        df_patients = df_clean[['patient_id', target_col]].drop_duplicates(subset=['patient_id'], keep='first')
-        patient_counts = df_patients.groupby(target_col)['patient_id'].nunique()
-        rare_classes = patient_counts[patient_counts < min_patients_per_class].index
-
-        if len(rare_classes) > 0:
-            print(f"\nRemoved target classes with < {min_patients_per_class} patients:")
-            for cls in rare_classes:
-                print(f"  - Class '{cls}': {patient_counts[cls]} patients")
-            df_clean = df_clean[~df_clean[target_col].isin(rare_classes)].copy()  # filtered dataset
-    '''
-
-    '''
-    """"" encoding for target column """""
-
-    if config_file_tree.TASK == 'classification':
-        label_encoder = LabelEncoder()
-        df_clean[target_col] = label_encoder.fit_transform(df_clean[target_col].astype(str))
-
-        class_mapping = dict(zip(label_encoder.classes_, range(len(label_encoder.classes_))))
-        print(f"\n" + "=" * 50)
-        print(f"TARGET ENCODING MAPPING ('{target_col}'):")
-        print("=" * 50)
-        for class_name, code in class_mapping.items():
-            print(f"  {class_name:<15} -> {code}")
-        print("=" * 50 + "\n")
-
-    print("STANDARDIZED TARGET DISTRIBUTION:")
-    print(df_clean[target_col].value_counts())
-    '''
     df_clean.to_csv(output_metadata_filepath, sep='\t', index=False)
     print(f"\nPreprocessed metadata saved to: '{output_metadata_filepath}' (Shape: {df_clean.shape})")
 

@@ -1,6 +1,6 @@
 import logging
 import re
-from os import path
+from os import path, makedirs
 from pathlib import Path
 
 from pandas import read_csv, DataFrame, concat
@@ -90,13 +90,15 @@ def parse_sample_id(sample_id):
 
     info = {
         'sample_id': sample_id,
+        'sample': '_'.join(tokens[:2]),
         'cohort': 'Unknown',
         'patient_id': tokens[0],
         'phase': None,
         'phase_label': 'Unknown',
         'tissue': None,
         'sample_class': 'BulkTissue',
-        'extraction': None
+        'extraction': None,
+        'treatment': 'Untreated',
     }
 
     if not tokens:
@@ -123,28 +125,29 @@ def parse_sample_id(sample_id):
         return info
 
 
-    #  remaining tokens: Clinical phase + Tissue (es. pOvaR, rLN1, iAsc1, p0me1) and/or Subsample + Extraction
+    #  remaining tokens: Clinical phase + Tissue (es. pOvaR, rLN1, iAsc1, p0me1) and/or Subsample + Extraction + Treatment
 
     extraction_tokens = []
 
     for token in tokens[1:]:
         # extraction data (es. RNA1, DNA2, Data1)
-        if re.match(r"^(RNA|DNA|Data)\d*$", token, re.IGNORECASE):
+        if re.match(r"^(RNA|DNA|Data|dup|set)\d*$", token, re.IGNORECASE):
             extraction_tokens.append(token)
             continue
 
         # subsample type / cellular line (es. CLadh, CLsph, CL62, FS1, PE, DE, DT)
-        m_sub = re.match(r"^(?P<subsample>CL\w*|FS\d*|PE\w*|DE|DT|SCB|SC|HE|PAX)$", token, re.IGNORECASE)
+        m_sub = re.match(r"^(?P<subsample>CL\w*|OL\d*|FS\d*|PE\w*|DE|DT|SCB|SC|HE|PAX)$", token, re.IGNORECASE)
         if m_sub:
             #info['subsample'] = token
-            sub_upper = token.upper()
-            if sub_upper.startswith('CL'):
+            if token.upper().startswith('CL'):
                 info['sample_class'] = 'CellLine'
-            elif sub_upper.startswith('FS'):
+            if token.upper().startswith('OL'):
+                info['sample_class'] = 'OrganoidLine'  # Organoid line indicator (es. OL2184, OL2171)
+            elif token.upper().startswith('FS'):
                 info['sample_class'] = 'FreshFrozen'
-            elif any(sub_upper.startswith(x) for x in ['PE', 'DE', 'HE', 'PAX']):
+            elif any(token.upper().startswith(x) for x in ['PE', 'DE', 'HE', 'PAX']):
                 info['sample_class'] = 'FFPE'
-            elif sub_upper == 'DT':
+            elif token.upper() == 'DT':
                 info['sample_class'] = 'DissociatedTissue'
             continue
 
@@ -164,6 +167,13 @@ def parse_sample_id(sample_id):
         if match_tissue_only and info['tissue'] is None:
             info['tissue'] = token
             continue
+
+        known_treatments = ['Alpelisib', 'DMSO']
+        if token in known_treatments:
+            info['treatment'] = token
+        elif token == 'TR':
+            info['treatment'] = 'Treated'
+
 
     if extraction_tokens:
         info['extraction'] = "_".join(extraction_tokens)
@@ -196,5 +206,8 @@ if __name__ == "__main__":
     extract_hercules_metadata(expr_df)
 
     if config_file_tree.RUN_PCA:
-        PCA.run_pca_analysis(output_bulk_filepath, output_metadata_filepath, output_dir)
+        out_dir_pca = path.join(output_dir, "out_analysis")
+        makedirs(out_dir_pca, exist_ok=True)
+
+        PCA.run_pca_analysis(output_bulk_filepath, output_metadata_filepath, out_dir_pca)
     print("\nDONE!")

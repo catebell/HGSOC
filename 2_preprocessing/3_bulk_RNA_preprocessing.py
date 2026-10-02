@@ -1,4 +1,3 @@
-import logging
 from os import path, makedirs
 
 from pandas import read_csv, DataFrame, concat
@@ -6,12 +5,6 @@ from tqdm import tqdm
 
 import PCA
 import config_file_tree
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
-)
 
 
 """"" paths and parameters """""
@@ -29,7 +22,6 @@ string_aliases_filepath = config_file_tree.STRING_ALIASES_FILE
 COHORT_THRESHOLD = 1  # % of minimum samples per cohort wrt the total num of samples
 EOC_THRESHOLD = 0.30  # minimum tumor purity
 
-output_top_genes_filepath = path.join(output_dir, "selected_top_genes.tsv")
 output_rna_bulk_filepath = path.join(output_dir, f"preprocessed_bulk_expr.tsv")
 output_metadata_filepath = path.join(output_dir, f"preprocessed_samples_metadata.tsv")
 
@@ -42,7 +34,6 @@ def get_protein_coding_ensg(filepath):
         "alias": "str",
         "source": "category",
     }).dropna()
-    #df_aliases.info(memory_usage="deep")
 
     ensg_mask = df_aliases['alias'].str.startswith('ENSG')
     df_ensg = df_aliases[ensg_mask].copy()
@@ -107,21 +98,17 @@ def filter_bulk_and_metadata():
     df_bulk = read_csv(rna_bulk_filepath, sep="\t")
     gene_col = df_bulk.columns[0]
 
-    logging.info("[FILTERING TYPE] Removing Cell lines, only BulkTissue kept...")
-    df_metadata = df_metadata[df_metadata['sample_class'] == 'BulkTissue']
-    df_bulk = df_bulk[[gene_col] + df_metadata['sample_id'].to_list()]
-
     total_samples = len(df_metadata)
-    print(f"\nFound {total_samples} BulkTissue samples\n")
+    print(f"Found {total_samples} samples in metadata (and expression table).\n")
 
-    logging.info(f"\n[FILTERING PURITY] Applying Tumor Purity filter (EOC > {EOC_THRESHOLD * 100:.0f}%)...")
+    print(f"[FILTERING PURITY] Applying Tumor Purity filter (EOC > {EOC_THRESHOLD * 100:.0f}%)...")
     sample_col = df_w.columns[0]
     eoc_valid_samples = set(df_w.loc[df_w['EOC'] > EOC_THRESHOLD, :][sample_col])
     df_metadata = df_metadata[df_metadata['sample_id'].isin(eoc_valid_samples)].copy()
     df_bulk = df_bulk[[gene_col] + df_metadata['sample_id'].to_list()]
 
     total_samples = len(df_metadata)
-    print(f"Kept {total_samples} samples having EOC > {EOC_THRESHOLD}")
+    print(f"Kept {total_samples} samples having EOC > {EOC_THRESHOLD}\n")
 
 
     print("Cohorts stats:")
@@ -144,7 +131,7 @@ def filter_bulk_and_metadata():
         print(f"Cohort '{cohort_name}':")
         print(f"  - Samples:  {n_samples} ({percentage:.2f}%)")
         print(f"  - Patients: {n_patients}")
-        print(f"  - Tissues:  {n_tissues}")
+        print(f"  - Tissues:  {n_tissues}\n")
 
 
     """"" filter out cohorts with less than 10% samples of the dataset """
@@ -152,19 +139,36 @@ def filter_bulk_and_metadata():
     cohorts_to_keep = [s['cohort'] for s in cohort_stats if s['percentage'] >= COHORT_THRESHOLD]
     cohorts_to_remove = [s['cohort'] for s in cohort_stats if s['percentage'] < COHORT_THRESHOLD]
 
-    print(f"\n[FILTERING COHORT] Kept Cohorts (>= {COHORT_THRESHOLD}%): {cohorts_to_keep}")
+    print(f"[FILTERING COHORT] Kept Cohorts (>= {COHORT_THRESHOLD}%): {cohorts_to_keep}\n")
     if cohorts_to_remove:
-        print(f"[FILTERING COHORT] Removed Cohorts (< {COHORT_THRESHOLD}%): {cohorts_to_remove}")
+        print(f"[FILTERING COHORT] Removed Cohorts (< {COHORT_THRESHOLD}%): {cohorts_to_remove}\n")
 
     # filtering metadata
     df_metadata_filtered = df_metadata[df_metadata['cohort'].isin(cohorts_to_keep)].copy()
     valid_samples = df_metadata_filtered['sample_id'].tolist()
 
     df_bulk_filtered = df_bulk[[gene_col] + valid_samples]
-    logging.info(f"Filtered bulk matrix: '{output_rna_bulk_filepath}' (Shape: {df_bulk_filtered.shape})...")
+    print(f"Filtered bulk matrix (Shape: {df_bulk_filtered.shape})...\n")
+
+    # deduplication of multiple RNA extraction
+    dup_mask = df_metadata_filtered.duplicated('sample', keep=False)
+    num_duplicates = dup_mask.sum()
+    print(f"[DEDUPLICATING SAMPLES] Found {num_duplicates} duplicated samples cols (multiple extractions).")
+
+    # re-ordering by 'extraction' (es. 'RNA1' before 'RNA2', 'RNA3', ...) and keeping first
+    df_metadata_filtered = (
+        df_metadata_filtered
+        .sort_values(by='extraction')
+        .drop_duplicates(subset=['sample'], keep='first')
+        .sort_index()
+    )
+
+    # aligning bulk and metadata
+    valid_samples = df_metadata_filtered['sample_id'].tolist()
+    df_bulk_filtered = df_bulk[[gene_col] + valid_samples]
 
     df_metadata_filtered.to_csv(output_metadata_filepath, sep="\t", index=False)
-    print(f"Saved filtered metadata: '{output_metadata_filepath}' (Shape: {df_metadata_filtered.shape})")
+    print(f"Saved filtered metadata: '{output_metadata_filepath}' (Shape: {df_metadata_filtered.shape})\n")
 
     return df_bulk_filtered, df_metadata_filtered
 
@@ -174,44 +178,32 @@ def filter_bulk_genes(df_bulk, df_metadata, top_n_genes=5000):
     gene_id_col = df_bulk.columns[0]
 
     # keep only protein_coding genes
-    logging.info("[FILTER PROTEIN-CODING] Collecting protein coding genes...")
+    print("[FILTER PROTEIN-CODING] Collecting protein coding genes...")
     protein_coding_gene_set, ensg_to_names_map = get_protein_coding_ensg(string_aliases_filepath)
 
     initial_gene_count = len(df_bulk)
     df_bulk = df_bulk[df_bulk[gene_id_col].isin(protein_coding_gene_set)]
-    logging.info(f" --> genes reduced from {initial_gene_count} to {len(df_bulk)}.")
+    print(f" --> genes reduced from {initial_gene_count} to {len(df_bulk)}.")
 
     # if there are ambiguities (gene_ids duplicated), keep higher expression
     sample_cols = list(df_bulk.columns[1:])
     matrix_rna = df_bulk.groupby(gene_id_col)[sample_cols].max()
 
-    logging.info(f"Selecting top {top_n_genes} genes by variance...\n")
-    # transposed --> (Samples x Genes) so we can compute on columns, easier computation
-    matrix_rna = matrix_rna.T
-    gene_variances = matrix_rna.var()
-
-    top_genes_var = gene_variances.nlargest(top_n_genes)
-    # matrix_rna = matrix_rna[top_genes_var.index]  # TODO fare sempre a runtime, remember later
-
     # saving as matrix (Genes x Samples)
-    matrix_rna.T.to_csv(output_rna_bulk_filepath, sep='\t')
-
-    top_genes_df = DataFrame()
-    top_genes_df['gene_id'] = top_genes_var.index
-    top_genes_df['variance'] = top_genes_var.values
-    top_genes_df['gene_name'] = [ensg_to_names_map.get(gene_id, 'N/A') for gene_id in top_genes_var.index]
-
-    top_genes_df.to_csv(output_top_genes_filepath, sep='\t', index=False)
-    logging.info(f"Selected top expression variance genes saved in: {output_top_genes_filepath}\n")
+    matrix_rna.to_csv(output_rna_bulk_filepath, sep='\t')
+    print(f"Saved preprocessed bulk expression matrix to: {output_rna_bulk_filepath} (Shape: {matrix_rna.shape})\n")
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     bulk_filtered_df, metadata_filtered = filter_bulk_and_metadata()
     filter_bulk_genes(bulk_filtered_df, metadata_filtered)
 
     if config_file_tree.RUN_PCA:
-        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, output_dir, 'cohort')
-        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, output_dir, 'tissue')
-        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, output_dir, 'phase_label')
+        out_dir_pca = path.join(output_dir, "out_analysis")
+        makedirs(out_dir_pca, exist_ok=True)
+
+        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'cohort')
+        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'tissue')
+        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'phase_label')
 
     print("DONE\n")

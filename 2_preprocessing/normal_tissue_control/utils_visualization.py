@@ -1,4 +1,8 @@
+from os import path
+
 import matplotlib
+
+import config_file_tree
 
 matplotlib.use("Agg")
 
@@ -18,7 +22,7 @@ def plot_cnv_vs_rna_quadrants(
     """Creates a 4 quadrants Scatter Plot (CNV vs somatic_delta_RNA) for chosen genes list."""
 
     print("Creating 4 quadrants scatter plot...")
-    df_plot = df_merged[df_merged["Gene"].isin(gene_list)].copy()
+    df_plot = df_merged[df_merged["symbol"].isin(gene_list)].copy()
 
     if exclude_common_germline and "is_common_germline" in df_plot.columns:
         df_plot = df_plot[~df_plot["is_common_germline"]]
@@ -34,14 +38,14 @@ def plot_cnv_vs_rna_quadrants(
     plt.figure(figsize=(11, 7))
     sns.set_theme(style="whitegrid")
 
+    metadata = pd.read_csv(path.join(config_file_tree.PREPROCESSED_DATA_DIR, "preprocessed_sampleS_metadata.tsv"), sep='\t')
     sns.scatterplot(
         data=df_plot,
         x="somatic_purifiedLogR",
         y="somatic_delta_RNA",
-        hue="Gene",
+        hue="symbol",
         hue_order=gene_list,
         style="is_common_germline",
-        #style="tissue" if "tissue" in df_plot.columns else None,
         alpha=0.85,
         s=80,
     )
@@ -77,7 +81,7 @@ def plot_cnv_rna_dual_heatmap(
     """Creates two joined heatmap (Copy Number and Delta RNA Expression) for selected genes."""
 
     print("Creating dual heatmap...")
-    df_sub = df_merged[df_merged["Gene"].isin(gene_list)].copy()
+    df_sub = df_merged[df_merged["symbol"].isin(gene_list)].copy()
 
     if df_sub.empty:
         print("[ERROR]: No data available for heatmap.")
@@ -87,13 +91,13 @@ def plot_cnv_rna_dual_heatmap(
 
     # Pivot matrices (Gene x Sample)
     matrix_cn = df_sub.pivot_table(
-        index="Gene",
+        index="symbol",
         columns=sample_col,
         values="somatic_purifiedLogR",
         aggfunc="mean",
     )
     matrix_rna = df_sub.pivot_table(
-        index="Gene",
+        index="symbol",
         columns=sample_col,
         values="somatic_delta_RNA",
         aggfunc="mean",
@@ -142,7 +146,7 @@ def extract_cnv_rna_hits(
     """Extracts and exports 'hits' for the two cases of interest"""
 
     print("Extracting cases of interest...")
-    df_sub = df_merged[df_merged["Gene"].isin(gene_list)].copy()
+    df_sub = df_merged[df_merged["symbol"].isin(gene_list)].copy()
 
     if exclude_common_germline and "is_common_germline" in df_sub.columns:
         df_sub = df_sub[~df_sub["is_common_germline"]]
@@ -179,7 +183,7 @@ def extract_cnv_rna_hits(
         )
 
     cols = [
-        "Gene",
+        "symbol",
         "sample" if "sample" in df_sub.columns else "sample_id",
         "tissue",
         "is_common_germline",

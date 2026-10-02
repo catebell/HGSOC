@@ -5,11 +5,11 @@ import torch
 
 import config_file_tree
 
-path_ppi_file = os.path.join("..", "ppi_string_files","9606.protein.links.v12.0.txt")
-path_protein_gene_file = os.path.join("..", "ppi_string_files","9606.protein.aliases.v12.0.txt")
+path_ppi_file = config_file_tree.STRING_PPI_FILE
+path_protein_gene_file = config_file_tree.STRING_ALIASES_FILE
 
 preprocessed_dir = config_file_tree.PREPROCESSED_DATA_DIR
-path_top_genes_file = os.path.join(preprocessed_dir, 'selected_top_genes.tsv')
+path_top_genes_file = os.path.join(preprocessed_dir, 'selected_genes.tsv')
 
 def build_edge_index():
     """ Select existing connections only between top genes found """

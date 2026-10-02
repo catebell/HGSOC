@@ -106,7 +106,7 @@ def pre_train_imputation_encoding(df, task, target_col = None, is_train=True, en
 
     """"" DAYS features : Log1p transform + std scaler """""
 
-    time_cols = [col for col in features_cols if 'days' in col.lower()]
+    time_cols = [col for col in features_cols if 'kaplan' in col.lower() or 'days' in col.lower() or 'time' in col.lower()]
     for col in time_cols:
         if is_train:
             imputers[col] = SimpleImputer(strategy='median')
