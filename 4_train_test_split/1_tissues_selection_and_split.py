@@ -1,4 +1,4 @@
-import os
+import os, sys
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
@@ -8,12 +8,12 @@ import config_file_tree
 Split based on metadata
 """
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 """"" paths and parameters """""
 
 split_by_patient = True  # multiple tissues belonging to the same patient must end up in the same split
 
-preprocessed_data_dir = config_file_tree.PREPROCESSED_DATA_DIR
-#metadata_filepath = os.path.join(preprocessed_data_dir, 'preprocessed_samples_metadata.tsv')
 graph_dir = config_file_tree.PROCESSED_GRAPHS_DIR
 metadata_filepath = os.path.join(graph_dir, 'associated_metadata.tsv')
 
