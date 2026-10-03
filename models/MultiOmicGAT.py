@@ -24,7 +24,8 @@ class MultiOmicGAT(Module):
 
         # linear projection for residual connection (Skip Connection)
         self.residual_proj1 = Linear(in_node_features, hidden_dim * heads)
-        self.residual_proj2 = Linear(hidden_dim * heads, hidden_dim)
+        # Norm Layer to stabilize training
+        self.norm1 = GraphNorm(hidden_dim * heads)
 
         # Layer 2: features compression and genes relation consolidation
         self.gat2 = GATv2Conv(
@@ -36,8 +37,7 @@ class MultiOmicGAT(Module):
             dropout=dropout,
         )
 
-        # Norm Layer to stabilize training
-        self.norm1 = GraphNorm(hidden_dim * heads)
+        self.residual_proj2 = Linear(hidden_dim * heads, hidden_dim)
         self.norm2 = GraphNorm(hidden_dim)
 
         self.num_sample_features = num_sample_features

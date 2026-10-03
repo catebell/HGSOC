@@ -33,7 +33,6 @@ class PatientTissueDataset(Dataset):
 
         """"" samples metadata columns setup """""
 
-        # self.sample_feature_cols = ['tissue', 'tissue_group_Asc', 'tissue_group_Ome', 'tissue_group_Ova', 'tissue_group_Per']
         self.sample_feature_cols = ['phase_label', 'tissue', 'is_fluid']
 
 
@@ -75,7 +74,7 @@ class PatientTissueDataset(Dataset):
         # sample features association
         sample_metadata_features = self.sample_metadata_df.loc[data.sample_id, self.sample_feature_cols].values
 
-        # Eventual NaNs imputation  # TODO should not be
+        # Eventual NaNs imputation  # TODO check ma non dovrebbero essercene
         sample_metadata_features = pd.to_numeric(sample_metadata_features, errors='coerce')
         sample_metadata_features = [0.0 if pd.isna(v) else float(v) for v in sample_metadata_features]
 
@@ -84,9 +83,13 @@ class PatientTissueDataset(Dataset):
         return data
 
 
-    def update_metadata_df(self, new_metadata_df):
+    def update_metadata_df(self, new_metadata_df, new_feature_cols=None):
         self.sample_metadata_df = new_metadata_df.drop_duplicates(subset=['sample_id']).set_index(
             'sample_id')  # preventing duplicates
+
+        if new_feature_cols is not None:
+            self.sample_feature_cols = new_feature_cols
+
         valid_sample_ids = set(self.sample_metadata_df.index)
         self.graph_filenames = [
             f for f in self.graph_filenames

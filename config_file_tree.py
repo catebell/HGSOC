@@ -27,6 +27,7 @@ STRING_PPI_FILE = path.join(ROOT_DIR, "ppi_string_files","9606.protein.links.v12
 RUN_PCA = False
 
 USE_SAMPLES_METADATA = False  # available (and filtered) metadata included or not in embeddings creation
+METADATA_FEATURES = ['tissue']
 USE_CLINICAL_DATA = False  # available (and filtered) patients data included or not in embeddings creation
 
 TASK = "classification"

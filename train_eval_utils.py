@@ -1,9 +1,12 @@
+import logging
+
 import pandas as pd
 import numpy as np
 import re
 from psutil import Process
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler, OrdinalEncoder, MultiLabelBinarizer, OneHotEncoder
+from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler, OrdinalEncoder, MultiLabelBinarizer, \
+    OneHotEncoder
 
 import config_file_tree
 
@@ -38,20 +41,19 @@ def get_memory_usage():
 """"" clinical pre training preprocessing """""
 
 # filter cols_to_keep to prevent data leakage
-LEAKAGE_MAP = { # todo completare elenco rimozione colonne di leakage o superflue per la task
+LEAKAGE_MAP = { # todo check e completare elenco rimozione colonne di leakage o superflue per la task, se proprio non ho nulla da fare. per ora selezionate a mano
     # Primary Therapy Response Yes No classification:
 
     # Platinum resistant classification:
-    'platinum_resistant': ['PFI_days', 'PFS_days', 'Progression_Yes_No', 'had_progression_therapy'],  # todo check
+    'platinum_resistant': ['PFI_days', 'PFS_days', 'Progression_Yes_No', 'had_progression_therapy'],
 
     # Overall Survival task:
-    'Survival': ['PFI_days', 'platinum_resistant'],  # todo check
-
+    'Survival': ['PFI_days', 'platinum_resistant'],
     # Progression Free Survival:
     'PFS_days': ['had_progression_therapy', 'PFI_days', 'platinum_resistant', 'Survival', 'OS_days', 'Primary_therapy_outcome'],
 
     # Progression Yes No classification:
-    'Progression_Yes_No': ['PFS_days', 'PFI_days', 'platinum_resistant', 'had_progression_therapy']  # todo check
+    'Progression_Yes_No': ['PFS_days', 'PFI_days', 'platinum_resistant', 'had_progression_therapy']
 }
 
 
@@ -61,7 +63,6 @@ def pre_train_imputation_encoding(df, task, target_col = None, is_train=True, en
     If is_train=True: compute parameters on Train data, else applies same parameters on Test/Validation data too.
     """
     df_norm = df.copy()
-    target_col_encoded = False
 
     if is_train:
         encoders = {}
@@ -79,6 +80,7 @@ def pre_train_imputation_encoding(df, task, target_col = None, is_train=True, en
 
     if cols_to_drop:
         df_norm = df_norm.drop(columns=[col for col in cols_to_drop if col in df_norm.columns])
+
 
     if task == 'classification':
         target_cols = [target_col]
@@ -147,7 +149,6 @@ def pre_train_imputation_encoding(df, task, target_col = None, is_train=True, en
     }
 
     cols_ordinal = [col for col in ordinal_mappings.keys() if col in features_cols]
-
     for col in cols_ordinal:
         df_norm[col] = df_norm[col].astype(str).str.strip().str.lower()
         ordinal_categories = ordinal_mappings[col]
@@ -182,8 +183,7 @@ def pre_train_imputation_encoding(df, task, target_col = None, is_train=True, en
         'is_fluid': ['no', 'yes'],
     }
 
-    cols_boolean = [col for col in boolean_mappings.keys() if col in features_cols or col == target_col]
-
+    cols_boolean = [col for col in boolean_mappings.keys() if col in features_cols]
     for col in cols_boolean:
         df_norm[col] = df_norm[col].astype(str).str.strip().str.lower()
         bool_categories = boolean_mappings[col]
@@ -197,7 +197,6 @@ def pre_train_imputation_encoding(df, task, target_col = None, is_train=True, en
 
             encoded_vals = encoders[col].fit_transform(df_norm[[col]])
             df_norm[col] = imputers[col].fit_transform(encoded_vals).ravel()
-            if col == target_col: target_col_encoded = True
         else:
             encoded_vals = encoders[col].transform(df_norm[[col]])
             df_norm[col] = imputers[col].transform(encoded_vals).ravel()
@@ -210,8 +209,7 @@ def pre_train_imputation_encoding(df, task, target_col = None, is_train=True, en
         'Primary_therapy_outcome': ['unresponsive', 'responsive']
     }
 
-    cols_boolean = [col for col in bool_censor_mappings.keys() if col in features_cols or col == target_col]
-
+    cols_boolean = [col for col in bool_censor_mappings.keys() if col in features_cols]
     for col in cols_boolean:
         df_norm[col] = df_norm[col].astype(str).str.strip().str.lower()
         bool_categories = bool_censor_mappings[col]
@@ -225,7 +223,6 @@ def pre_train_imputation_encoding(df, task, target_col = None, is_train=True, en
 
             encoded_vals = encoders[col].fit_transform(df_norm[[col]])
             df_norm[col] = imputers[col].fit_transform(encoded_vals).ravel()
-            if col == target_col: target_col_encoded = True
         else:
             encoded_vals = encoders[col].transform(df_norm[[col]])
             df_norm[col] = imputers[col].transform(encoded_vals).ravel()
@@ -234,7 +231,6 @@ def pre_train_imputation_encoding(df, task, target_col = None, is_train=True, en
     """"" MULTI-LABEL CATEGORICAL FEATURES MultiLabelBinarizer strategy for values = lists """""
 
     cols_for_mlb = ['Maintenance_therary_after_1st_line', 'Chronic_illnesses_type', 'Previous_cancer_dg']
-
     for col in cols_for_mlb:
         if col in features_cols:
             df_norm[col] = df_norm[col].astype(str).apply(
@@ -260,9 +256,8 @@ def pre_train_imputation_encoding(df, task, target_col = None, is_train=True, en
 
     """"" CATEGORICAL FEATURES ENCODING One-Hot Encoding strategy for mutually exclusive features """""
 
-    cols_for_ohe = ['Histology', 'Treatment_strategy', 'Oper2_outcome', 'HR_signature_SBS3_per_patient', 'phase_label', 'tissue']
+    cols_for_ohe = ['Histology', 'Treatment_strategy', 'Oper2_outcome', 'HR_signature_SBS3_per_patient', 'phase_label', 'tissue', 'tissue_type']
     existing_ohe_cols = [col for col in cols_for_ohe if col in features_cols]
-
     if existing_ohe_cols:
         df_norm[existing_ohe_cols] = df_norm[existing_ohe_cols].fillna('missing').astype(str)
 
@@ -281,24 +276,6 @@ def pre_train_imputation_encoding(df, task, target_col = None, is_train=True, en
         df_norm = pd.concat([df_norm, ohe_df], axis=1)
         df_norm = df_norm.drop(columns=existing_ohe_cols)
 
-
-    """"" target codification into zero-based continuous interval for pytorch functions (es. [6,7,9] -> [0,1,3]) """""
-
-    if not target_col_encoded:  # TODO finire
-        # processing with ordinal encoder o label encoder
-        print()
-
-    '''
-    if task == 'classification':
-        if is_train:
-            categories = sorted(df_norm[target_col].dropna().unique())
-        else:
-            if categories is None:
-                raise ValueError("categories are needed when task = 'classification' and is_train=False.")
-
-        df_norm[target_col] = pd.Categorical(df_norm[target_col], categories=categories).codes
-    '''
-
     if is_train:
         return df_norm, encoders, scalers, imputers, categories
     return df_norm
@@ -307,11 +284,13 @@ def pre_train_imputation_encoding(df, task, target_col = None, is_train=True, en
 if __name__ == '__main__':
     from os import path, getpid
 
-    task = config_file_tree.TASK
-    target_col = config_file_tree.TARGET_COL
-
     df_samples_metadata = pd.read_csv(path.join('2_preprocessing', 'preprocessed_data', 'data_HERCULES_DECIDER', 'preprocessed_samples_metadata.tsv'), sep='\t')
     #df_clinical = pd.read_csv(path.join('2_preprocessing', 'preprocessed_data', 'data_HERCULES_DECIDER', 'preprocessed_clinical_data.tsv'), sep='\t')
-    df_new, enc, scal, imp, cat = pre_train_imputation_encoding(df_samples_metadata, task, target_col, is_train=True,)
+    df_samples_metadata = df_samples_metadata[[config_file_tree.TARGET_COL] + config_file_tree.METADATA_FEATURES]
+    df_new, enc, scal, imp, cat = pre_train_imputation_encoding(
+        df_samples_metadata,
+        config_file_tree.TASK,
+        config_file_tree.TARGET_COL,
+        is_train=True)
 
     print("breakpoint")
