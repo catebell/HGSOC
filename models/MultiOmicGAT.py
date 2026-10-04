@@ -9,7 +9,7 @@ from torch_geometric.nn import GATv2Conv, global_mean_pool, global_max_pool, Gra
 # solves static attention problem mentioned in the original paper
 
 class MultiOmicGAT(Module):
-    def __init__(self, in_node_features, hidden_dim, out_channels, heads=4, dropout=0.2, num_sample_features=0):
+    def __init__(self, in_node_features, hidden_dim, out_channels, heads=2, dropout=0.2, num_sample_features=0):
         super(MultiOmicGAT, self).__init__()
 
         # Layer 1: receives node feats (RNA + CNV) and applies multi-head attention

@@ -204,6 +204,8 @@ if __name__ == "__main__":
 
         PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'cohort')
         PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'tissue')
+        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'tissue_type')
+        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'is_fluid')
         PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'phase_label')
 
     print("DONE\n")

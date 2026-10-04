@@ -99,6 +99,12 @@ if __name__ == "__main__":
             df_clinical['Histology'] = df_clinical.apply(correct_histology, axis=1)
             df_clinical = df_clinical.drop(columns=['Histology_re_evaluated_notes'])
 
+        # filter out samples of patient with Histology != "hgsc"
+        hgsc_patients = df_clinical[df_clinical['Histology'] == 'high grade serous']['Patient_cohort_code_Patient_Card']
+        n_patients = len(df_clinical['Patient_cohort_code_Patient_Card'].unique())
+        df_clinical = df_clinical[df_clinical['Patient_cohort_code_Patient_Card'].isin(hgsc_patients)]
+        print(
+            f"Discarded {n_patients - len(df_clinical['Patient_cohort_code_Patient_Card'].unique())} patients not strictly High Grade Serous OC.")
 
     if 'Residual_tumor_PDS' in df_clinical.columns and 'Residual_tumor_IDS' in df_clinical.columns:
         df_clinical['Residual_tumor_PDS'] = df_clinical['Residual_tumor_PDS'].fillna(df_clinical['Residual_tumor_IDS'])
@@ -132,7 +138,7 @@ if __name__ == "__main__":
         df_clinical = df_clinical.drop(columns=['Cause_of_death'])
 
     ''' old names
-    cols = [
+    cols_order = [
         'OS_overall_survival_Days_from_Dg_to_death',
         'OS_current_Time_from_dg_alive__Days',
         'PFS_Days_from_Dg_to_1st_prog',
@@ -140,9 +146,9 @@ if __name__ == "__main__":
         'PFI_after_Primary_therapy_if_Prog_Days',
         'PFI_current_no_prog_alive_days',
     ]
-    if all(col in df_clinical.columns for col in cols):
+    if all(col in df_clinical.columns for col in cols_order):
         df_clinical = process_survival_time_features(df_clinical)
-        df_clinical = df_clinical.drop(columns=cols)
+        df_clinical = df_clinical.drop(columns=cols_order)
     '''
 
     if 'PFI_KaplanM_allHGSC' in df_clinical.columns:

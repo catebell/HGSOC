@@ -127,12 +127,6 @@ def preprocess_metadata():
     df_metadata = df_metadata[df_metadata['patient_id'].str.lower().isin(clinical_patients)]
     print(f"Discarded {n_patients - len(df_metadata['patient_id'].unique())} patients with no clinical record.")
 
-    # filter out samples of patient with Histology != "hgsc"
-    hgsc_patients = df_clinical[df_clinical['Histology'] == 'high grade serous']['Patient_cohort_code_Patient_Card']
-    n_patients = len(df_metadata['patient_id'].unique())
-    df_metadata = df_metadata[df_metadata['patient_id'].str.lower().isin(hgsc_patients)]
-    print(f"Discarded {n_patients - len(df_metadata['patient_id'].unique())} patients not strictly High Grade Serous OC.")
-
     df_clean.to_csv(output_metadata_filepath, sep='\t', index=False)
     print(f"\nPreprocessed metadata saved to: '{output_metadata_filepath}' (Shape: {df_clean.shape})")
 

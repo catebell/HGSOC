@@ -17,6 +17,8 @@ split_by_patient = True  # multiple tissues belonging to the same patient must e
 graph_dir = config_file_tree.PROCESSED_GRAPHS_DIR
 metadata_filepath = os.path.join(graph_dir, 'associated_metadata.tsv')
 
+output_metadata_filepath = "metadata_for_training.tsv"
+
 TASK = config_file_tree.TASK
 TARGET_COL = config_file_tree.TARGET_COL  # task label to stratify on
 TIME_COL = ""
@@ -134,7 +136,7 @@ df_train_val.to_csv("samples_train_val.csv", index=False)
 df_train.to_csv("samples_train.csv", index=False)
 df_val.to_csv("samples_val.csv", index=False)
 df_test.to_csv("samples_test.csv", index=False)
-
+df_clean.to_csv(output_metadata_filepath, sep='\t', index=False)
 
 print("\nSplit:")
 

@@ -24,7 +24,7 @@ STRING_PPI_FILE = path.join(ROOT_DIR, "ppi_string_files","9606.protein.links.v12
 
 """"" training parameters """""
 
-RUN_PCA = False
+RUN_PCA = True
 
 USE_SAMPLES_METADATA = False  # available (and filtered) metadata included or not in embeddings creation
 METADATA_FEATURES = ['tissue']
@@ -34,7 +34,7 @@ TASK = "classification"
 #TASK = 'survival'
 
 if TASK == 'classification':
-    TARGET_COL = 'tissue_type'  # 'tissue', 'tissue_type', 'phase_label', 'Primary_therapy_outcome'
+    TARGET_COL = 'is_fluid'  # 'tissue_type', 'is_fluid', 'Primary_therapy_outcome'
 
     # PFI
     #TARGET_COL = 'PFI_KaplanM_allHGSC'

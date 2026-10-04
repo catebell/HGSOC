@@ -343,7 +343,7 @@ if __name__ == "__main__":
 
     rna_sample_map = {col: clean_sample_id(col) for col in df_rna.columns}  # clean samples IDs by keeping only Patient_Tissue
     df_rna = df_rna.rename(columns=rna_sample_map)
-    df_rna = df_rna.T.groupby(level=0).aggregate('mean').T  # eventual duplicated cols es. D382_iOme1_RNA1 and D382_iOme1_RNA2, aggregated
+    df_rna = df_rna.T.groupby(level=0).aggregate('mean').T  # eventual duplicated cols_order es. D382_iOme1_RNA1 and D382_iOme1_RNA2, aggregated
 
     df_cnv_filtered = df_cnv[df_cnv['gene_id'].isin(valid_genes)].copy()
     df_cnv_filtered['sample'] = df_cnv_filtered['sample'].apply(clean_sample_id)

@@ -14,7 +14,7 @@ def train_epoch(device, model, loader, optimizer, criterion):
     for data in loader:  # data_HERCULES_DECIDER = batch of graphs
         data = data.to(device)
         optimizer.zero_grad()
-        out, _ = model(data.x, data.edge_index, data.batch, data.metadata_x)
+        out, _ = model(data.x, data.edge_index, data.batch)#, data.metadata_x)  # TODO commentato qui e dopo
 
         loss = criterion(out, data.y)
         loss.backward()
@@ -37,7 +37,7 @@ def evaluate(device, model, loader, criterion):
     with torch.no_grad():
         for data in loader:
             data = data.to(device)
-            out, _ = model(data.x, data.edge_index, data.batch, data.metadata_x)
+            out, _ = model(data.x, data.edge_index, data.batch)#, data.metadata_x)
             loss = criterion(out, data.y)
             total_loss += loss.item() * data.num_graphs
 

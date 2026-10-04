@@ -1,6 +1,8 @@
 import logging
 import os
 
+import joblib
+import numpy as np
 import pandas as pd
 import sklearn
 import torch
@@ -10,9 +12,9 @@ from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
 import config_file_tree
+from models.GAT import GAT
 from train_eval_utils import print_details, pre_train_imputation_encoding
 from SampleGraphDataset import PatientTissueDataset
-from models.MultiOmicGAT import MultiOmicGAT
 from models.MultiOmicGATSurvival import MultiOmicGATSurvival, CoxPHLoss
 from train_functions import train_epoch, evaluate, train_epoch_survival, evaluate_survival
 
@@ -27,6 +29,16 @@ logging.basicConfig(
 )
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+if device.type == 'cpu':
+    cpus_allocated = int(os.environ.get('SLURM_CPUS_PER_TASK', 4))
+    try:
+        torch.set_num_threads(cpus_allocated)
+        torch.set_num_interop_threads(max(1, cpus_allocated // 2))
+    except RuntimeError as e:
+        logging.warning(f"Impossibile impostare interop_threads: {e}")
+
+    logging.info(f"Allocated threads for PyTorch: {torch.get_num_threads()}")
+
 logging.info("Device: " + str(device))
 
 
@@ -37,7 +49,7 @@ use_metadata = config_file_tree.USE_SAMPLES_METADATA
 task = config_file_tree.TASK
 target_column = config_file_tree.TARGET_COL
 
-path_to_metadata = os.path.join(config_file_tree.PREPROCESSED_DATA_DIR, "preprocessed_samples_metadata.tsv")
+path_to_metadata = os.path.join(config_file_tree.SPLIT_DIR, "metadata_for_training.tsv")
 
 path_train_val_csv = os.path.join(config_file_tree.SPLIT_DIR, "samples_train_val.csv")
 path_test_csv = os.path.join(config_file_tree.SPLIT_DIR, "samples_test.csv")
@@ -50,42 +62,66 @@ os.makedirs(dir_to_save, exist_ok=True)
 
 """"" loading clinical data_HERCULES_DECIDER """""
 
-df_metadata_preprocessed = pd.read_csv(path_to_metadata, sep="\t")
+df_metadata = pd.read_csv(path_to_metadata, sep="\t")
+
+if use_metadata:
+    df_metadata = df_metadata[['sample_id', 'patient_id', target_column] + config_file_tree.METADATA_FEATURES]
+
 metadata_train_val_samples = pd.read_csv(path_train_val_csv)
 metadata_test_samples = pd.read_csv(path_test_csv)
 
-df_metadata_train_val = df_metadata_preprocessed[
-    df_metadata_preprocessed['sample_id'].isin(metadata_train_val_samples['sample_id'])
+df_metadata_train_val = df_metadata[
+    df_metadata['sample_id'].isin(metadata_train_val_samples['sample_id'])
 ].dropna(subset=[target_column]).copy()
 
-df_metadata_test = df_metadata_preprocessed[
-    df_metadata_preprocessed['sample_id'].isin(metadata_test_samples['sample_id'])
+df_metadata_test = df_metadata[
+    df_metadata['sample_id'].isin(metadata_test_samples['sample_id'])
 ].dropna(subset=[target_column]).copy()
+
+
+""""" target encoding  """""
 
 if task == 'classification':
     logging.info(f"Starting training for classification task using target feature: {target_column}\n")
 
-    label_encoder = sklearn.preprocessing.LabelEncoder()  # TODO handle in function? per ora non ci sono unknown perchè fittato su completo
-    df_metadata_train_val[target_column] = label_encoder.fit_transform(df_metadata_train_val[target_column])
-    df_metadata_test[target_column] = label_encoder.fit_transform(df_metadata_test[target_column])
-    print("Classes identified:\n" + str(label_encoder.classes_))
+    label_encoder = sklearn.preprocessing.LabelEncoder()
+    label_encoder.fit(df_metadata[target_column].dropna())
+
+    df_metadata_train_val[target_column] = label_encoder.transform(df_metadata_train_val[target_column])
+    df_metadata_test[target_column] = label_encoder.transform(df_metadata_test[target_column])
+
+    joblib.dump(label_encoder, os.path.join(dir_to_save, f"label_encoder_{target_column}.joblib"))
+    logging.info("Classes identified:\n" + str(label_encoder.classes_))
 else:
     logging.info(f"Starting training on survival task using target event: {target_column}\n")
 
+#TODO mi sa che non cambia nulla ma su RAM è meglio apparently
+'''
 logging.info("Train + Val Dataset init...")
 train_val_dataset = PatientTissueDataset(path_graphs_dir, df_metadata_train_val, task=task, target_col=target_column)
 
 logging.info("Test Dataset init...")
 test_dataset = PatientTissueDataset(path_graphs_dir, df_metadata_test, task=task, target_col=target_column)
+'''
+# --- IN-MEMORY CACHING (Pre-caricamento in RAM) ---
+logging.info("Train + Val Dataset init...")
+raw_train_val_dataset = PatientTissueDataset(path_graphs_dir, df_metadata_train_val, task=task, target_col=target_column)
 
-print_details(train_val_dataset)
+logging.info("Test Dataset init...")
+raw_test_dataset = PatientTissueDataset(path_graphs_dir, df_metadata_test, task=task, target_col=target_column)
+
+logging.info("Pre-loading datasets into RAM to avoid disk I/O bottleneck...")
+train_val_dataset = [raw_train_val_dataset[i] for i in tqdm(range(len(raw_train_val_dataset)), desc="Loading Train/Val")]
+test_dataset = [raw_test_dataset[i] for i in tqdm(range(len(raw_test_dataset)), desc="Loading Test")]
+
+print_details(raw_train_val_dataset)
 
 
 """"" set model parameters """""
 
-num_genes_features = train_val_dataset.num_features  # multiomics feature vector
-num_sample_features = len(train_val_dataset.sample_feature_cols)  # total sample features without the one to predict
-logging.info(f"Sample Features found : {num_sample_features} \n {train_val_dataset.sample_feature_cols}")
+num_genes_features = raw_train_val_dataset.num_features  # multiomics feature vector
+num_sample_features = len(raw_train_val_dataset.sample_feature_cols)  # total sample features without the one to predict
+logging.info(f"Sample Features found : {num_sample_features} - {raw_train_val_dataset.sample_feature_cols}")  # TODO fix print/locazione
 
 epochs = 100
 
@@ -96,7 +132,8 @@ criterion = None
 y_skf = None
 
 if task == 'classification':
-    y_labels = torch.tensor([train_val_dataset[i].y.item() for i in range(len(train_val_dataset))])
+    #y_labels = torch.tensor([train_val_dataset[i].y.item() for i in range(len(train_val_dataset))])
+    y_labels = torch.tensor(df_metadata_train_val[target_column].values, dtype=torch.long)
     y_skf = y_labels
     unique_labels = torch.unique(y_labels)
     logging.info(f"Unique labels found in dataset: {unique_labels}")
@@ -117,7 +154,8 @@ if task == 'classification':
 
 elif task == 'survival':
     # stratification based on event (0 = censured, 1 = event)
-    y_events = torch.tensor([train_val_dataset[i].y_event.item() for i in range(len(train_val_dataset))])
+    #y_events = torch.tensor([train_val_dataset[i].y_event.item() for i in range(len(train_val_dataset))])
+    y_events = torch.tensor(df_metadata_train_val[target_column].values, dtype=torch.float32)
     y_skf = y_events
 
     criterion = CoxPHLoss()
@@ -130,88 +168,129 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(train_val_dataset, y_skf))
 
     model_name = f"best_{task}_model_fold{fold + 1}.pt"
 
-    """"" clinical fold specific processing """""
-    '''
+    """"" target and metadata fold specific processing """""
+
     if use_metadata:
+        logging.info("Executing fold-specific feature/target encoding and preprocessing...")
+
         # retrieving patient ids of current train/val splits from graphs sample ids
-        train_samples_ids = ["-".join(train_val_dataset[i].sample_id.split("-")[:3]) for i in train_idx]
-        val_samples_ids = ["-".join(train_val_dataset[i].sample_id.split("-")[:3]) for i in val_idx]
-        test_samples_ids = ["-".join(test_dataset[i].sample_id.split("-")[:3]) for i,_ in enumerate(test_dataset)]
+        df_metadata_train_raw = df_metadata_train_val.iloc[train_idx].copy()
+        df_metadata_val_raw = df_metadata_train_val.iloc[val_idx].copy()
+        df_metadata_test_raw = df_metadata_test.copy()
 
-        df_clinical_train = df_metadata_preprocessed[df_metadata_preprocessed['bcr_patient_barcode'].isin(train_samples_ids)]
-        df_clinical_val = df_metadata_preprocessed[df_metadata_preprocessed['bcr_patient_barcode'].isin(val_samples_ids)]
-        df_metadata_test = df_metadata_preprocessed[df_metadata_preprocessed['bcr_patient_barcode'].isin(test_samples_ids)]
-
-        df_clinical_train_processed, encoders, scalers, imputers, categories = nan_imputation_and_features_normalization(
-            df=df_clinical_train,
+        # fit-transform only on train set
+        df_train_proc, encoders, scalers, imputers, categories = pre_train_imputation_encoding(
+            df=df_metadata_train_raw,
+            task=task,
             target_col=target_column,
-            is_train=True,
+            is_train=True
+        )
+
+        # transform of validation and test
+        df_val_proc = pre_train_imputation_encoding(
+            df=df_metadata_val_raw,
+            task=task,
+            target_col=target_column,
+            is_train=False,
+            encoders=encoders,
+            scalers=scalers,
+            imputers=imputers,
+            categories=categories
+        )
+
+        df_test_proc = pre_train_imputation_encoding(
+            df=df_metadata_test_raw,
+            task=task,
+            target_col=target_column,
+            is_train=False,
+            encoders=encoders,
+            scalers=scalers,
+            imputers=imputers,
+            categories=categories
         )
 
         # saving preprocessors for evaluation/model usage
         preprocessors = {
-            'encoders': encoders,'
+            'encoders': encoders,
             'scalers': scalers,
             'imputers': imputers,
-            'categories': categories,
-            'sample_feature_cols': train_val_dataset.sample_feature_cols
+            'categories': categories
         }
-        prep_save_path = os.path.join(output_dir, f"clinical_preprocessors_{task}_fold{fold + 1}.joblib")
-        joblib.dump(preprocessors, prep_save_path)
+        prep_path = os.path.join(dir_to_save, f"clinical_preprocessors_{task}_fold{fold + 1}.joblib")
+        joblib.dump(preprocessors, prep_path)
 
-        df_clinical_val_processed = nan_imputation_and_features_normalization(
-            df=df_clinical_val,
-            target_col=target_column,
-            is_train=False,
-            encoders=encoders,
-            scalers=scalers,
-            imputers=imputers,
-            categories=categories,
-        )
-        df_clinical_processed = pd.DataFrame(pd.concat([df_clinical_train_processed, df_clinical_val_processed]))
-        train_val_dataset.update_clinical_df(df_clinical_processed)
-        num_sample_features = len(train_val_dataset.sample_feature_cols)
+        # 3. Unione di Train e Val elaborati e posizionamento di 'sample_id' come Indice
+        df_train_val_proc = pd.concat([df_train_proc, df_val_proc], axis=0)
 
-        df_clinical_test_processed = nan_imputation_and_features_normalization(
-            df=df_metadata_test,
-            target_col=target_column,
-            is_train=False,
-            encoders=encoders,
-            scalers=scalers,
-            imputers=imputers,
-            categories=categories,
-        )
-        test_dataset.update_clinical_df(df_clinical_test_processed )
-    '''
+        if 'sample_id' in df_train_val_proc.columns:
+            df_train_val_proc = df_train_val_proc.set_index('sample_id')
+        if 'sample_id' in df_test_proc.columns:
+            df_test_proc = df_test_proc.set_index('sample_id')
+
+        # 4. Selezione delle sole colonne di feature numeriche elaborate
+        exclude_cols = {target_column, 'patient_id', 'overall_survival_days', 'deceased'}
+        if task == 'survival' and hasattr(config_file_tree, 'TIME_COL'):
+            exclude_cols.add(config_file_tree.TIME_COL)
+
+        sample_feature_cols = [c for c in df_train_val_proc.columns if c not in exclude_cols]
+        num_sample_features = len(sample_feature_cols)
+        logging.info(f"Number of processed sample features for Fold {fold + 1}: {num_sample_features}")
+
+        # 7. Aggiornamento dinamico del campo metadata_x nei grafi in RAM
+        # Aggiornamento grafi Train
+        for i in train_idx:
+            graph = train_val_dataset[i]
+            feats = df_train_val_proc.loc[graph.sample_id, sample_feature_cols].values.astype(np.float32)
+            graph.metadata_x = torch.tensor(feats, dtype=torch.float32).unsqueeze(0)  # Shape: [1, num_features]
+
+        # Aggiornamento grafi Validation
+        for i in val_idx:
+            graph = train_val_dataset[i]
+            feats = df_train_val_proc.loc[graph.sample_id, sample_feature_cols].values.astype(np.float32)
+            graph.metadata_x = torch.tensor(feats, dtype=torch.float32).unsqueeze(0)
+
+        # Aggiornamento grafi Test
+        for graph in test_dataset:
+            feats = df_test_proc.loc[graph.sample_id, sample_feature_cols].values.astype(np.float32)
+            graph.metadata_x = torch.tensor(feats, dtype=torch.float32).unsqueeze(0)
+
 
     """"" fold specific dataset separation and DataLoader """""
 
     train_dataset = Subset(train_val_dataset, train_idx)
     val_dataset = Subset(train_val_dataset, val_idx)
 
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, num_workers=0)
+    test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False, num_workers=0)
 
 
     """"" task specific model upload """""
 
-    if task == 'classification':
+    if task == 'classification': # TODO per ora no edge features
+
+        model = GAT(
+            num_node_features=num_genes_features,
+            num_classes=num_classes,
+            hidden_channels=64,
+            heads=2,
+        ).to(device)
+        '''
         model = MultiOmicGAT(
             in_node_features=num_genes_features,
             hidden_dim=64,
             out_channels=num_classes,
-            heads=4,
+            heads=2,
             dropout=0.3,
             num_sample_features=num_sample_features if use_metadata else 0,
         ).to(device)
-
+        '''
     elif task == 'survival':
         model = MultiOmicGATSurvival(
             in_node_features=num_genes_features,
             hidden_dim=64,
             out_channels=1,
-            heads=4,
+            heads=2,
             dropout_rate=0.3,
             num_samples_features=num_sample_features if use_metadata else 0,
         ).to(device)
