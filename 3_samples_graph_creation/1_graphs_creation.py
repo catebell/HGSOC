@@ -93,5 +93,6 @@ def generate_all_graphs():
     metadata.to_csv(output_metadata_filepath, sep='\t', index=True)
     print(f"Associated metadata saved to: {output_metadata_filepath}")
 
+
 if __name__ == "__main__":
     generate_all_graphs()

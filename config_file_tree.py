@@ -1,11 +1,12 @@
 from os import path
 
 ROOT_DIR = path.dirname(path.abspath(__file__))
-
-
 DATASET_NAME = "data_HERCULES_DECIDER"
+
 DATASET_DIR = path.join(ROOT_DIR, "1_dataset", DATASET_NAME)
-DECONVOLUTION_W_FILE = path.join(DATASET_DIR, "rnaseq-decom_2026_05_19", "W.tsv")
+ORIGINAL_RNA_DIR = path.join(DATASET_DIR, "expression_tables_updated_pipeline")
+ORIGINAL_CN_FILE = path.join(DATASET_DIR, "23Jun2025_combinedCnGenes.tsv")
+DECONVOLUTION_W_FILE = path.join(DATASET_DIR, "rnaseq-decom_2026_05_19", "W.tsv.gz")
 CLINICAL_DATA_FILE = path.join(DATASET_DIR, "12122025_Clinical export DECIDER collab.xlsx")
 
 EXTRACTED_DATA_DIR = path.join(ROOT_DIR, "1_dataset", "extracted_raw_data", DATASET_NAME)
@@ -26,23 +27,26 @@ STRING_PPI_FILE = path.join(ROOT_DIR, "ppi_string_files","9606.protein.links.v12
 
 RUN_PCA = True
 
-USE_SAMPLES_METADATA = False  # available (and filtered) metadata included or not in embeddings creation
+USE_SAMPLES_METADATA = True  # samples metadata included or not in embeddings creation
 METADATA_FEATURES = ['tissue']
-USE_CLINICAL_DATA = False  # available (and filtered) patients data included or not in embeddings creation
+USE_CLINICAL_DATA = True  # patients data included or not in embeddings creation
+CLINICAL_FEATURES = ['Patient_cohort_code_Patient_Card',
+                     'Age_at_Diagnosis',
+                     'BMI_at_Dg']
 
 TASK = "classification"
-#TASK = 'survival'
+#task = 'survival'
 
 if TASK == 'classification':
-    TARGET_COL = 'is_fluid'  # 'tissue_type', 'is_fluid', 'Primary_therapy_outcome'
+    TARGET_COL = 'Primary_therapy_outcome'  # 'tissue_type', 'is_fluid', 'Primary_therapy_outcome'
 
     # PFI
-    #TARGET_COL = 'PFI_KaplanM_allHGSC'
+    #target_col = 'PFI_KaplanM_allHGSC'
 
 elif TASK == 'survival':
     # OS - Overall Survival
-    #TARGET_COL = 'Survival'  # SURVIVAL_EVENT_COL
-    #TIME_COL = 'OS_KaplanM_allHGSC'  # SURVIVAL_TIME_COL
+    #target_col = 'Survival'  # SURVIVAL_EVENT_COL
+    #time_col = 'OS_KaplanM_allHGSC'  # SURVIVAL_TIME_COL
 
     # PFS - Progression-Free Survival
     TARGET_COL = 'Progression_Yes_No'  # PROGRESSION_EVENT_COL

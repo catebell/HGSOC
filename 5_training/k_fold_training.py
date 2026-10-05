@@ -267,7 +267,7 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(train_val_dataset, y_skf))
 
     """"" task specific model upload """""
 
-    if task == 'classification': # TODO per ora no edge features
+    if task == 'classification':
 
         model = GAT(
             num_node_features=num_genes_features,

@@ -1,4 +1,4 @@
-from os import path
+from os import path, makedirs
 from pandas import read_csv
 
 import config_file_tree
@@ -8,6 +8,8 @@ extracted_dir = config_file_tree.EXTRACTED_DATA_DIR
 path_to_clinical_file = path.join(extracted_dir, "raw_clinical_data.tsv")
 
 output_dir = config_file_tree.PREPROCESSED_DATA_DIR
+makedirs(output_dir, exist_ok=True)
+
 output_filepath = path.join(output_dir, "preprocessed_clinical_data.tsv")
 
 features_considered = [
@@ -86,8 +88,6 @@ features_considered = [
 
 
 if __name__ == "__main__":
-    target_col = config_file_tree.TARGET_COL
-
     df_clinical = read_csv(path_to_clinical_file,sep='\t', index_col=0)
 
     # Filter dataset to available features in file
@@ -104,7 +104,7 @@ if __name__ == "__main__":
         n_patients = len(df_clinical['Patient_cohort_code_Patient_Card'].unique())
         df_clinical = df_clinical[df_clinical['Patient_cohort_code_Patient_Card'].isin(hgsc_patients)]
         print(
-            f"Discarded {n_patients - len(df_clinical['Patient_cohort_code_Patient_Card'].unique())} patients not strictly High Grade Serous OC.")
+            f"\nDiscarded {n_patients - len(df_clinical['Patient_cohort_code_Patient_Card'].unique())} patients not strictly High Grade Serous OC.\n")
 
     if 'Residual_tumor_PDS' in df_clinical.columns and 'Residual_tumor_IDS' in df_clinical.columns:
         df_clinical['Residual_tumor_PDS'] = df_clinical['Residual_tumor_PDS'].fillna(df_clinical['Residual_tumor_IDS'])
@@ -168,17 +168,9 @@ if __name__ == "__main__":
     if 'Previous_cancer_dg' in df_clinical.columns:
         df_clinical['Previous_cancer_dg'] = df_clinical['Previous_cancer_dg'].apply(clean_previous_cancers)
 
-    print("Excluding samples where target = nan...")
-    if target_col in df_clinical.columns:
-        df_clinical = df_clinical.dropna(subset=[target_col]).copy()
-        if config_file_tree.TASK == 'survival':
-            time_col = config_file_tree.TIME_COL
-            df_clinical = df_clinical[df_clinical[time_col] > 0]  # remove non-valid times
-            df_clinical = df_clinical.dropna(subset=[time_col])
-
     # Save preprocessed clinical data
     df_clinical.to_csv(output_filepath, sep='\t', index=False)
 
-    print(f"Final columns ({len(df_clinical.columns)}): {df_clinical.columns.values}")
+    print(f"Final columns ({len(df_clinical.columns)}): {df_clinical.columns.tolist()}")
 
     print("\nDONE!\n")

@@ -1,6 +1,6 @@
 from os import path, makedirs
 
-from pandas import read_csv, DataFrame, concat
+from pandas import read_csv, concat
 from tqdm import tqdm
 
 import PCA
@@ -10,7 +10,6 @@ import config_file_tree
 """"" paths and parameters """""
 
 output_dir = config_file_tree.PREPROCESSED_DATA_DIR
-makedirs(output_dir, exist_ok=True)
 
 extracted_dir = config_file_tree.EXTRACTED_DATA_DIR
 rna_bulk_filepath = path.join(extracted_dir, "raw_bulk_expr.tsv")

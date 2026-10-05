@@ -17,7 +17,7 @@ logging.basicConfig(
 
 """"" paths and parameters """""
 
-dataset_bulk_expr_dir = path.join(config_file_tree.DATASET_DIR, "expression_tables_updated_pipeline")
+dataset_bulk_expr_dir = config_file_tree.ORIGINAL_RNA_DIR
 
 metadata_filepath = path.join(config_file_tree.DATASET_DIR, "samples_metadata.tsv")
 

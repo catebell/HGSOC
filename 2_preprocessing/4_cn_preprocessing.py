@@ -6,7 +6,7 @@ from os import path
 import config_file_tree
 
 dataset_dir = config_file_tree.DATASET_DIR
-cnv_filepath = path.join(dataset_dir, "23Jun2025_combinedCnGenes.tsv")
+cnv_filepath = config_file_tree.ORIGINAL_CN_FILE
 
 output_dir = config_file_tree.PREPROCESSED_DATA_DIR
 expr_filepath = path.join(output_dir, 'preprocessed_bulk_expr.tsv')
@@ -119,9 +119,9 @@ if __name__ == "__main__":
     cols_order = ['gene_id', 'symbol', 'sample', 'sample_id', 'purifiedLogR', 'nMajor', 'nMinor', 'breaksInGene']
     df_cnv_mapped = df_cnv_mapped[cols_order]
 
-    print(f"\nSaving final preprocessed CN Dataframe:")
-    print(f"    Total rows: {len(df_cnv_mapped)}")
-    print(f"    Unique sample ids mapped: {df_cnv_mapped['sample_id'].nunique()}")
+    print(f"\nSaving final preprocessed CN Dataframe...")
+    print(f"    (Total rows: {len(df_cnv_mapped)})")
+    print(f"    (Unique sample ids mapped: {df_cnv_mapped['sample_id'].nunique()})")
 
     df_cnv_mapped.to_csv(output_filepath, sep='\t', index=False)
 

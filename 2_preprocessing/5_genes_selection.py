@@ -1,5 +1,5 @@
 import logging
-from os import path, makedirs
+from os import path
 import pandas as pd
 import numpy as np
 
@@ -27,7 +27,7 @@ driver_genes_filepath = config_file_tree.DRIVER_GENES_FILE
 output_selected_genes_filepath = path.join(output_dir, "selected_genes.tsv")
 
 TOP_RNA_GENES = 5000
-TOP_CN_GENES = 3000
+TOP_CN_GENES = 2000
 
 
 def select_genes():
@@ -81,7 +81,7 @@ def select_genes():
     logging.info(f"Top RNA genes count:        {len(top_rna_genes_set)}")
     logging.info(f"Top CN genes count:         {len(top_cn_genes_set)}")
     logging.info(f"Overlapping genes count:    {overlap_count}")
-    logging.info(f"Unique Selected genes: {len(selected_genes_union)}\n")
+    logging.info(f"Unique Selected genes:   {len(selected_genes_union)}\n")
 
     logging.info(f"Adding Driver genes from '{driver_genes_filepath}'...")
     df_drivers = pd.read_csv(driver_genes_filepath, sep='\t')
