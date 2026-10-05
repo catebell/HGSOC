@@ -58,17 +58,19 @@ def enrich_metadata_with_clinical_features(df_metadata):
     df_clinical = pd.read_csv(clinical_filepath, sep='\t')
 
     patient_key_clinical = df_clinical.columns[0]
-    cols_to_keep = []
+    cols_to_keep = [patient_key_clinical]
 
     if config_file_tree.USE_CLINICAL_DATA:
-        cols_to_keep = list(clinical_cols_to_extract)
+        cols_to_keep += list(clinical_cols_to_extract)
 
     if target_col in df_clinical.columns and target_col not in cols_to_keep:
-        cols_to_keep.append(patient_key_clinical)
         cols_to_keep.append(target_col)
 
     if target_col in cols_to_keep:
         print(f"Target feature from clinical data: {target_col}\n")
+    else:
+        if target_col not in df_metadata.columns:
+            raise KeyError("Target column neither in metadata nor in clinical data.")
 
     existing_cols = [col for col in cols_to_keep if col in df_clinical.columns]
     missing_cols = set(cols_to_keep) - set(existing_cols)
