@@ -286,11 +286,11 @@ if __name__ == '__main__':
 
     df_samples_metadata = pd.read_csv(path.join('2_preprocessing', 'preprocessed_data', 'data_HERCULES_DECIDER', 'preprocessed_samples_metadata.tsv'), sep='\t')
     #df_clinical = pd.read_csv(path.join('2_preprocessing', 'preprocessed_data', 'data_HERCULES_DECIDER', 'preprocessed_clinical_data.tsv'), sep='\t')
-    df_samples_metadata = df_samples_metadata[[config_file_tree.TARGET_COL] + config_file_tree.METADATA_FEATURES]
+    df_samples_metadata = df_samples_metadata[[config_file_tree.SAMPLE_TARGET_COL] + config_file_tree.METADATA_FEATURES]
     df_new, enc, scal, imp, cat = pre_train_imputation_encoding(
         df_samples_metadata,
         config_file_tree.TASK,
-        config_file_tree.TARGET_COL,
+        config_file_tree.SAMPLE_TARGET_COL,
         is_train=True)
 
     print("breakpoint")

@@ -7,8 +7,10 @@ from torch_geometric.nn import GATv2Conv, global_mean_pool, global_max_pool, Bat
 
 
 class GAT(torch.nn.Module):
-    def __init__(self, num_node_features, num_classes, hidden_channels, heads=2, num_edge_features=0):
+    def __init__(self, num_node_features, num_classes, hidden_channels, heads=2, num_sample_features=0, num_edge_features=0):
         super(GAT, self).__init__()
+
+        self.num_sample_features = num_sample_features
 
         edge_dim = num_edge_features if num_edge_features > 0 else None
 
@@ -22,11 +24,14 @@ class GAT(torch.nn.Module):
         self.conv2 = GATv2Conv(in_channels=hidden_channels * heads, out_channels=hidden_channels, edge_dim=edge_dim, heads=1)
         self.bn2 = BatchNorm(hidden_channels)
 
+        base_emb_dim = hidden_channels * 2
+        self.emb_dim = base_emb_dim + num_sample_features
+
         self.dropout = torch.nn.Dropout(0.5)
-        self.classifier = torch.nn.Linear(hidden_channels * 2, num_classes)
+        self.classifier = torch.nn.Linear(self.emb_dim, num_classes)
 
 
-    def forward(self, x, edge_index, batch, edge_attr=None):
+    def forward(self, x, edge_index, batch, edge_attr=None, metadata_x=None):
         x_projected = self.skip_conn_projection1(x)
         x = self.conv1(x, edge_index, edge_attr=edge_attr)
         x = self.bn1(x)
@@ -42,6 +47,9 @@ class GAT(torch.nn.Module):
         x_mean = global_mean_pool(x, batch)
         x_max = global_max_pool(x, batch)
         emb = torch.cat([x_mean, x_max], dim=1)  #now x has dimension hidden_channels * 2
+
+        if metadata_x is not None and self.num_sample_features > 0:
+            emb = torch.cat([emb, metadata_x], dim=1)
 
         x = self.dropout(emb)
 

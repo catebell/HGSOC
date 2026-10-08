@@ -42,7 +42,10 @@ features_considered = [
 
     "OS_KaplanM_allHGSC",
     "PFS_KaplanM_allHGSC",
-    "PFI_KaplanM_allHGSC",
+
+    "PFI_KaplanM_allHGSC", #
+    "Excluded_from_PFI_calculations", #
+    "Excluded_from_PFI_calculations__reason", # --> unified in PFI_days + flag is_platinum_resistant
 
     # old names
     #"OS_overall_survival_Days_from_Dg_to_death", #
@@ -65,30 +68,14 @@ features_considered = [
     "Chronic_illnesses_type",
     "Previous_cancer_yes_no",
     "Previous_cancer_dg",
-
-# TODO
-    '''
-    #"Oper1_Omental_disease_largest_nodule_NEW",  # advanced info
-    #"Oper2_Omental_disease_largest_nodule_NEW",  # advanced info
-    
-    "Maintenance_therary_after_1st_line",
-    "PARPi_treatment",
-    #"CRS_Omental",
-    #"CRS_Omental_range",
-    #"RECIST_1.1_Response_to_NACT",
-    
-
-    #"Time_from_End_of_1st_line_maintenance_to_1st_prog_Days_TFI", # just in case of sub-analysis on Maintenance
-    # (focus only on patients treated with PARPi / Bevacizumab --> target to evaluate effectiveness
-
-    #"Time_from_1st_prog_to_Death_Days_Post_progression_survival", # just in case target = survival after progression
-    
-    '''
 ]
 
 
 if __name__ == "__main__":
     df_clinical = read_csv(path_to_clinical_file,sep='\t', index_col=0)
+
+    patient_id_col = df_clinical.columns[0]
+    df_clinical[patient_id_col] = df_clinical[patient_id_col].str.upper()
 
     # Filter dataset to available features in file
     available_features = [col for col in features_considered if col in df_clinical.columns]
@@ -151,8 +138,13 @@ if __name__ == "__main__":
         df_clinical = df_clinical.drop(columns=cols_order)
     '''
 
+    cols = ['PFI_KaplanM_allHGSC', 'Excluded_from_PFI_calculations', 'Excluded_from_PFI_calculations__reason']
     if 'PFI_KaplanM_allHGSC' in df_clinical.columns:
-        df_clinical['PFI_target'] = df_clinical['PFI_KaplanM_allHGSC'].apply(assign_pfi_class)
+        df_clinical = process_pfi_features(df_clinical)
+        for col in cols:
+            if col in df_clinical.columns:
+                df_clinical = df_clinical.drop(columns=[col])
+
 
     if all(col in df_clinical.columns for col in ['BRCA_mutation_any', 'BRCA_any_in_Decider', 'BRCA_mutation_status_in_Clinical_test']):
         df_clinical['BRCA_mutation_any'] = df_clinical.apply(clean_brca_mutation, axis=1)

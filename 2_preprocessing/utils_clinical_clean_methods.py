@@ -177,7 +177,7 @@ def clean_survival(val):
         return 'dead'  # deceased because of cancer
     return 'censored'
 
-
+'''
 def process_survival_time_features(df):
     """
     - Unifies temporal cols_to_keep in intervals (OS, PFS e PFI)
@@ -207,7 +207,8 @@ def process_survival_time_features(df):
     df.loc[df['PFI_days'].isna(), 'is_platinum_resistant'] = np.nan
 
     return df
-
+    
+    
 def assign_pfi_class(days):
     """ Creation of target class PFI status """
     if pd.isna(days):
@@ -218,6 +219,46 @@ def assign_pfi_class(days):
         return 1
     else:
         return None   # In-between category (6-12 mesi) --> excluded if binary task
+'''
+
+def process_pfi_features(df):
+    """ Cleans Platinum-Free Interval (PFI) data and computes 'is_platinum_resistant'.
+        is_platinum_resistant:
+        - 'yes' -> Platinum-Resistant (< 180 days)
+        - 'no'  -> Platinum-Sensibile  (>= 180 days)
+        - NaN
+     """
+
+    df = df.copy()
+    df['PFI_days'] = pd.to_numeric(df['PFI_KaplanM_allHGSC'], errors='coerce')
+
+    # exclude based on column stating reason
+    if 'Excluded_from_PFI_calculations' in df.columns:
+        is_excluded = df['Excluded_from_PFI_calculations'] == 'yes'
+        df.loc[is_excluded, 'PFI_days'] = np.nan
+
+    if 'Excluded_from_PFI_calculations__reason' in df.columns:
+        is_excluded = df['Excluded_from_PFI_calculations__reason'].notna()
+        df.loc[is_excluded, 'PFI_days'] = np.nan
+
+    df.loc[df['PFI_days'] < 0, 'PFI_days'] = np.nan
+
+    df['is_platinum_resistant'] = df['PFI_days'].apply(assign_pfi_class)
+
+    return df
+
+
+def assign_pfi_class(days):
+    """ Creation of target class PFI status """
+    if pd.isna(days):
+        return None
+    elif days < 180:   # < 6 mesi (Platino-Resistant)
+        return 'yes'
+    elif days > 365:  # > 1 anno (Platino-Sensible)  # TODO testare poi da cambiare in >=180
+        return 'no'
+    else:
+        return None   # In-between category (6-12 mesi) --> excluded if binary task
+
 
 def clean_brca_mutation(row):
     """

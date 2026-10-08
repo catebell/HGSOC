@@ -9,7 +9,7 @@ from torch_geometric.loader import DataLoader
 import config_file_tree
 from models.MultiOmicGAT import MultiOmicGAT
 from models.MultiOmicGATSurvival import MultiOmicGATSurvival
-from SampleGraphDataset import PatientTissueDataset
+from PatientSampleDataset import PatientSampleDataset
 from train_eval_utils import pre_train_imputation_encoding
 
 
@@ -21,7 +21,7 @@ task = config_file_tree.TASK
 target_column = ""
 
 if task == 'classification':
-    target_column = config_file_tree.TARGET_COL
+    target_column = config_file_tree.SAMPLE_TARGET_COL
     print(f"Starting pairs comparison using target feature: {target_column}\n")
 elif task == 'survival':
     target_column = config_file_tree.SURVIVAL_EVENT_COL  # placeholder, won't actually be used here
@@ -65,7 +65,7 @@ df_clinical_processed = pre_train_imputation_encoding(
     categories=categories,
 )
 
-pairs_dataset = PatientTissueDataset(
+pairs_dataset = PatientSampleDataset(
     graphs_dir=path_to_pairs_graphs,
     samples_metadata_df=df_clinical_processed,
     task=task,
@@ -79,7 +79,7 @@ print(f"Loading model: {model_dict_path}")
 num_genes_features = pairs_dataset.num_features
 num_clinical_features = len(pairs_dataset.sample_feature_cols)
 
-# model init with same training configuration
+# model_samples_encoder init with same training configuration
 if task == 'classification':
     model = MultiOmicGAT(
         in_node_features=num_genes_features,

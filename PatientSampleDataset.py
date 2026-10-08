@@ -4,12 +4,12 @@ import pandas as pd
 import torch
 from torch_geometric.data import Dataset
 
-# metadata columns about to be excluded from features
+# metadata columns about to be excluded from features TODO check and fix
 id_and_string_cols = ['sample_id', 'patient_id', 'cohort', 'phase', 'extraction',]
 
 leaking_cols = []
 
-class PatientTissueDataset(Dataset):
+class PatientSampleDataset(Dataset):
     def __init__(self, graphs_dir, samples_metadata_df, task, target_col=None, transform=None, pre_transform=None):
         super().__init__(None, transform, pre_transform)
 
@@ -19,6 +19,16 @@ class PatientTissueDataset(Dataset):
         self.task = task
         self.graphs_dir = graphs_dir
 
+        valid_sample_ids = set(self.sample_metadata_df.index)
+        self.graph_filenames = []
+
+        # Mantiene l'ordine esatto di self.sample_metadata_df
+        for sample_id in self.sample_metadata_df.index:
+            f_name = f"{sample_id}.pt"
+            if os.path.exists(os.path.join(graphs_dir, f_name)):
+                self.graph_filenames.append(f_name)
+
+        '''
         # filtering to load only graphs of samples actually present in the metadata file, to prevent eventual errors
         valid_sample_ids = set(self.sample_metadata_df.index)
         raw_filenames = [f for f in os.listdir(graphs_dir) if f.endswith('.pt')]
@@ -29,7 +39,7 @@ class PatientTissueDataset(Dataset):
             sample_id = os.path.splitext(f_name)[0]
             if sample_id in valid_sample_ids:
                 self.graph_filenames.append(f_name)
-
+        '''
 
         """"" samples metadata columns setup """""
 

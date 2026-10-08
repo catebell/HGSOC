@@ -124,7 +124,7 @@ def preprocess_metadata():
     # filter out samples of patients with no clinical record
     clinical_patients = df_clinical['Patient_cohort_code_Patient_Card']
     n_patients = len(df_clean['patient_id'].unique())
-    df_clean = df_clean[df_clean['patient_id'].str.lower().isin(clinical_patients)]
+    df_clean = df_clean[df_clean['patient_id'].str.upper().isin(clinical_patients.str.upper())]
     print(f"Discarded {n_patients - len(df_clean['patient_id'].unique())} patients with no clinical record.")
 
     df_clean.to_csv(output_metadata_filepath, sep='\t', index=False)
