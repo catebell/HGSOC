@@ -1,4 +1,3 @@
-""""" functions """""
 import logging
 
 import numpy as np
@@ -250,3 +249,62 @@ def show_fold_results(df_fold_results, task, save_to_csv = False, dir_to_save=No
     if save_to_csv:
         df_fold_results.to_csv(path.join(dir_to_save, f"report_kfold_test_results_{task}.csv"),index=False)
         logging.info("\nFinal folds report saved!\n")
+
+
+def save_learning_curves(history, model_name, fold_num, output_dir='learning_curves', is_grid_search=False):
+    """
+    Plots Train and Val Loss/Metrics curves.
+
+    Parameters:
+    - history: dict with lists ['train_loss', 'val_loss', 'train_metric', 'val_metric']
+    - model_name: for folder subdivision
+    - fold_num: fold index (es. 1, 2, ...)
+    - output_dir: root folder
+    """
+    import matplotlib.pyplot as plt
+    from os import makedirs, path
+
+    epochs = range(1, len(history['train_loss']) + 1)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    # --- LOSS TRAJECTORY ---
+    ax1.plot(epochs, history['train_loss'], label='Train Loss', color='#1f77b4', linewidth=2)
+    ax1.plot(epochs, history['val_loss'], label='Val Loss', color='#d62728', linestyle='--', linewidth=2)
+    if is_grid_search:
+        ax1.set_title(f'Cfg {fold_num} - Loss Trajectory')
+    else:
+        ax1.set_title(f'Fold {fold_num} - Loss Trajectory')
+    ax1.set_xlabel('Epochs')
+    ax1.set_ylabel('Loss')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+
+    # --- METRIC TRAJECTORY ---
+    metric_label = 'Accuracy'
+
+    if any(m > 0 for m in history['train_metric']):
+        ax2.plot(epochs, history['train_metric'], label=f'Train {metric_label}', color='#2ca02c', linewidth=2)
+
+    ax2.plot(epochs, history['val_metric'], label=f'Val {metric_label}', color='#ff7f0e', linestyle='--', linewidth=2)
+    if is_grid_search:
+        ax2.set_title(f'Cfg {fold_num} - {metric_label} Performance')
+    else:
+        ax2.set_title(f'Fold {fold_num} - {metric_label} Performance')
+    ax2.set_xlabel('Epochs')
+    ax2.set_ylabel(metric_label)
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+
+    if is_grid_search:
+        save_dir = path.join(output_dir)
+        makedirs(save_dir, exist_ok=True)
+        save_path = path.join(save_dir, f'cfg{fold_num}.png')
+    else:
+        save_dir = path.join(output_dir, model_name)
+        makedirs(save_dir, exist_ok=True)
+        save_path = path.join(save_dir, f'learning_curve_fold{fold_num}.png')
+
+    plt.savefig(save_path, dpi=300)
+    plt.close()

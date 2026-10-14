@@ -11,14 +11,14 @@ from tqdm import tqdm
 import config_file_tree
 
 """"" paths and parameters """""
-
 preprocessed_dir = config_file_tree.PREPROCESSED_DATA_DIR
+graphs_dir = config_file_tree.PROCESSED_SAMPLES_DIR
 
 rna_filepath = path.join(preprocessed_dir, "preprocessed_bulk_expr.tsv")
 cnv_filepath = path.join(preprocessed_dir, "preprocessed_cn.tsv")
 metadata_filepath = path.join(preprocessed_dir, "preprocessed_samples_metadata.tsv")
 
-selected_genes_filepath = path.join(preprocessed_dir, "selected_genes.tsv")
+selected_genes_filepath = path.join(graphs_dir, "selected_genes.tsv")
 known_drivers_filepath = config_file_tree.DRIVER_GENES_FILE
 
 output_dir = path.join(preprocessed_dir, "out_analysis")
@@ -331,7 +331,7 @@ if __name__ == "__main__":
         'gene_id': 'category',
         'symbol': 'category',
         'sample': 'category',
-        'purifiedLogR': 'float32'
+        'log2CopyNumber': 'float32'
     })
 
     gene_id_to_symbol_map = dict(zip(df_cnv['symbol'].str.upper(), df_cnv['gene_id']))
@@ -352,7 +352,7 @@ if __name__ == "__main__":
     print("Extracting cn values matrix in correct format...")
 
     # CNV metric chosen to correlate
-    cn_values = 'purifiedLogR'  # purifiedLogR or tot_copies
+    cn_values = 'log2CopyNumber'  # was purifiedLogR
     df_cnv_pivot = df_cnv_filtered.pivot_table(
         index='gene_id',
         columns='sample',

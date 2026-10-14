@@ -1,5 +1,3 @@
-import logging
-
 import pandas as pd
 import numpy as np
 import re
@@ -18,6 +16,8 @@ def print_details(dataset):
     print('====================')
     print(f'Number of graphs: {len(dataset)}')
     print(f'Number of features: {dataset.num_features}')
+    print(f"Node features names: {getattr(dataset[0], 'node_feature_names', 'Unspecified')}")
+    print(f"Node tensor shape: {dataset[0].x.shape}")
 
     print(dataset[0])
     print('=============================================================')

@@ -5,8 +5,7 @@ from os import path
 
 import config_file_tree
 
-dataset_dir = config_file_tree.DATASET_DIR
-cnv_filepath = config_file_tree.ORIGINAL_CN_FILE
+cnv_filepath = path.join(config_file_tree.EXTRACTED_DATA_DIR, "raw_cn_data.tsv")
 
 output_dir = config_file_tree.PREPROCESSED_DATA_DIR
 expr_filepath = path.join(output_dir, 'preprocessed_bulk_expr.tsv')
@@ -62,16 +61,18 @@ def rna_cn_samples_mapping(rna_samples_ids, cn_samples_ids):
 
 if __name__ == "__main__":
     print("Loading copy numbers data...")
-    cols_to_keep = ["ID", "Gene", "type", "sample", "nMajor", "nMinor", "purifiedLogR", "breaksInGene"]
+    cols_to_keep = [
+        "ID", "Gene", "type", "sample",
+        "copyNumber", "log2CopyNumber", "nMajor", "nMinor", 'logR', "Loh", "baf", "breaksInGene"
+    ]
+    #cols_to_keep = ["ID", "Gene", "type", "sample", "nMajor", "nMinor", "purifiedLogR", "breaksInGene"]
     # "nProbesCr", "nProbesAf", "logR", "baf", "nAraw", "nBraw", "purifiedBaf", "purifiedLoh", "CNstatus", "LOHstatus", "minPurifiedLogR", "maxPurifiedLogR"
     df_cnv_raw = read_csv(cnv_filepath, sep='\t', usecols=cols_to_keep,
                           dtype={
+                              'ID': 'category',
+                              'Gene': 'category',
                               'type': 'category',
                               'sample': 'category',
-                              'nMajor': 'float',
-                              'nMinor': 'float',
-                              'purifiedLogR': 'float',
-                              'breaksInGene': 'float',
                           })
 
     df_cnv_raw = df_cnv_raw[df_cnv_raw['type'] == 'protein_coding'].copy()
@@ -116,7 +117,11 @@ if __name__ == "__main__":
     df_cnv_mapped = df_cnv_raw.merge(df_matched, left_on='sample', right_on='cn_sample', how='inner')
     df_cnv_mapped = df_cnv_mapped.drop(columns=['cn_sample'])
 
-    cols_order = ['gene_id', 'symbol', 'sample', 'sample_id', 'purifiedLogR', 'nMajor', 'nMinor', 'breaksInGene']
+    #cols_order = ['gene_id', 'symbol', 'sample', 'sample_id', 'purifiedLogR', 'nMajor', 'nMinor', 'breaksInGene']
+    cols_order = [
+        'gene_id', 'symbol', 'sample', 'sample_id',
+        'copyNumber', 'log2CopyNumber', 'nMajor', 'nMinor', 'logR', 'Loh', 'baf', 'breaksInGene'
+    ]
     df_cnv_mapped = df_cnv_mapped[cols_order]
 
     print(f"\nSaving final preprocessed CN Dataframe...")

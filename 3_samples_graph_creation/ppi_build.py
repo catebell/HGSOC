@@ -8,8 +8,7 @@ import config_file_tree
 path_ppi_file = config_file_tree.STRING_PPI_FILE
 path_protein_gene_file = config_file_tree.STRING_ALIASES_FILE
 
-preprocessed_dir = config_file_tree.PREPROCESSED_DATA_DIR
-path_top_genes_file = os.path.join(preprocessed_dir, 'selected_genes.tsv')
+path_top_genes_file = os.path.join(config_file_tree.PROCESSED_SAMPLES_DIR, 'selected_genes.tsv')
 
 def build_edge_index():
     """ Select existing connections only between top genes found """
