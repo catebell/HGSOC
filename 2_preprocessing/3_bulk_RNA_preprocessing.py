@@ -201,10 +201,10 @@ if __name__ == "__main__":
         out_dir_pca = path.join(output_dir, "out_analysis")
         makedirs(out_dir_pca, exist_ok=True)
 
-        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'cohort')
-        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'tissue')
-        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'tissue_type')
-        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'is_fluid')
-        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'phase_label')
+        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'Expr', 'cohort')
+        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'Expr', 'tissue')
+        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'Expr', 'tissue_type')
+        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'Expr', 'is_fluid')
+        PCA.run_pca_analysis(output_rna_bulk_filepath, output_metadata_filepath, out_dir_pca, 'Expr', 'phase_label')
 
     print("DONE\n")

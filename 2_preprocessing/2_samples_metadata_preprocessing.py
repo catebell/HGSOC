@@ -54,38 +54,19 @@ def preprocess_metadata():
     df_metadata = pd.read_csv(metadata_filepath, sep="\t")
     print(f"Initial metadata shape: {df_metadata.shape}")
 
-    if 'tissue' in df_metadata.columns:
-        if 'tissue' in df_metadata.columns:
-            tissue_tuple_series = df_metadata['tissue'].apply(simplify_tissue)
-            df_metadata[['tissue', 'tissue_type']] = pd.DataFrame(
-                tissue_tuple_series.tolist(),
-                index=df_metadata.index
-            )
-
-    if 'phase_label' in df_metadata.columns:
-        df_metadata['phase_label'] = df_metadata['phase_label'].fillna('Unknown')
-
-    if 'sample_class' in df_metadata.columns:
-        n_before = len(df_metadata)
-        df_metadata = df_metadata[df_metadata['sample_class'] == 'BulkTissue']
-        print(f"Discarded {n_before - len(df_metadata)} samples with sample_class != 'BulkTissue' (CellLines, OrganoidLines, ...).")
-
-    if 'treatment' in df_metadata.columns:
-        n_before = len(df_metadata)
-        df_metadata = df_metadata[df_metadata['treatment'] == 'Untreated']
-        print(f"Discarded {n_before - len(df_metadata)} samples with treatment != 'Untreated'.")
-
+    # samples deduplication (es. re-extractions)
     if 'extraction' in df_metadata.columns:
-        n_before = len(df_metadata)
+        n_samples = len(df_metadata)
         forbidden_pattern = r'set|dup'
         has_suffix = df_metadata['extraction'].astype(str).str.contains(forbidden_pattern, case=False, na=False)
         df_metadata = df_metadata[~has_suffix]
-        print(f"Discarded {n_before - len(df_metadata)} samples with suffixes _set or _dup.")
+        print(f"Discarded {n_samples - len(df_metadata)} samples with suffixes _set or _dup.")
 
         # keep only updated versioning: _Data(number)
-        n_before = len(df_metadata)
+        n_samples = len(df_metadata)
         has_data = df_metadata['extraction'].astype(str).str.contains(r'Data\d+', case=False, na=False)
         data_sample_ids = df_metadata[has_data]['sample_id']
+
         # sample_id without 'Data(number)' (es. 'H001_pOvaR1_RNA1_Data2' -> 'H001_pOvaR1_RNA1')
         base_sample_ids_to_drop = set(
             data_sample_ids.apply(lambda s: re.sub(r'(_)?Data\d+', '', str(s), flags=re.IGNORECASE))
@@ -93,7 +74,23 @@ def preprocess_metadata():
         if base_sample_ids_to_drop:
             df_metadata = df_metadata[~df_metadata['sample_id'].isin(base_sample_ids_to_drop)]
         print(
-            f"Discarded {n_before - len(df_metadata)} samples by keeping updated sequencing (_Data2).")
+            f"Discarded {n_samples - len(df_metadata)} samples by keeping updated sequencing (_Data2).")
+
+    if 'phase_label' in df_metadata.columns:
+        df_metadata['phase_label'] = df_metadata['phase_label'].fillna('Unknown')
+
+    if 'tissue' in df_metadata.columns:
+        tissue_tuple_series = df_metadata['tissue'].apply(simplify_tissue)
+        df_metadata[['tissue', 'tissue_type']] = pd.DataFrame(
+            tissue_tuple_series.tolist(),
+            index=df_metadata.index
+        )
+
+        # add feature
+        fluid_prefixes = ['Asc', 'Plf']
+        df_metadata['is_fluid'] = df_metadata['tissue'].astype(str).apply(
+            lambda t: 'yes' if any(t.startswith(prefix) for prefix in fluid_prefixes) else 'no'
+        )
 
 
     features_to_keep = [
@@ -105,6 +102,7 @@ def preprocess_metadata():
         "phase_label",
         "tissue",
         "tissue_type",
+        "is_fluid",
         "sample_class",
         "extraction",
         "treatment"
@@ -113,19 +111,15 @@ def preprocess_metadata():
     available_features = [col for col in features_to_keep if col in df_metadata.columns]
     df_clean = df_metadata[available_features].copy()
 
-    fluid_prefixes = ['Asc', 'Plf']  # based on PCA, it could be useful to signal the GNN that some samples are fluid
-    df_clean['is_fluid'] = df_clean['tissue'].astype(str).apply(
-        lambda t: 'yes' if any(t.startswith(prefix) for prefix in fluid_prefixes) else 'no'
-    )
-
     print(f"\nLoading patient clinical data from: {clinical_filepath}")
     df_clinical = pd.read_csv(clinical_filepath, sep='\t')
 
     # filter out samples of patients with no clinical record
-    clinical_patients = df_clinical['Patient_cohort_code_Patient_Card']
+    clinical_patients = df_clinical['patient_id']
+    n_samples = len(df_clean)
     n_patients = len(df_clean['patient_id'].unique())
     df_clean = df_clean[df_clean['patient_id'].str.upper().isin(clinical_patients.str.upper())]
-    print(f"Discarded {n_patients - len(df_clean['patient_id'].unique())} patients with no clinical record.")
+    print(f"Discarded {n_samples - len(df_clean)} samples from {n_patients - len(df_clean['patient_id'].unique())} patients with no clinical record.")
 
     df_clean.to_csv(output_metadata_filepath, sep='\t', index=False)
     print(f"\nPreprocessed metadata saved to: '{output_metadata_filepath}' (Shape: {df_clean.shape})")

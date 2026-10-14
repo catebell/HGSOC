@@ -11,7 +11,7 @@ Split based on metadata and patient_id + metadata and clinical processing
 """"" paths and parameters """""
 
 preprocessed_dir = config_file_tree.PREPROCESSED_DATA_DIR
-graph_dir = config_file_tree.PROCESSED_GRAPHS_DIR
+graph_dir = config_file_tree.PROCESSED_SAMPLES_DIR
 
 metadata_filepath = os.path.join(graph_dir, 'associated_metadata.tsv')
 clinical_filepath = os.path.join(preprocessed_dir, "preprocessed_clinical_data.tsv")
@@ -36,6 +36,9 @@ MIN_PATIENTS_PER_CLASS = 5
 
 def clean_feature_cols(df_metadata, df_clinical):
     """ Keep only cols needed for sample metadata. """
+
+    # SAMPLES FEATURES
+
     cols_to_keep_metadata = ['sample_id', 'patient_id']
 
     if target_col_metadata in df_metadata.columns:
@@ -48,7 +51,9 @@ def clean_feature_cols(df_metadata, df_clinical):
 
     print(f"Metadata cleaned, kept cols: {df_metadata_filtered.columns.to_list()}")
 
-    cols_to_keep_clinical = ['Patient_cohort_code_Patient_Card']
+    # PATIENT FEATURES
+
+    cols_to_keep_clinical = ['patient_id']
 
     if target_col_clinical in df_clinical.columns:
         cols_to_keep_clinical.append(target_col_clinical)
@@ -131,10 +136,9 @@ def clean_and_filter_target(df_metadata, df_clinical):
 
 
     # keep only patients in clinical present in metadata cleaned
-    clinical_patient_id_col = df_clinical.columns[0]
     valid_patients = set(df_clean['patient_id'].astype(str).str.strip().str.upper().unique())
     n_patients = len(df_clinical)
-    df_clinical = df_clinical[df_clinical[clinical_patient_id_col].isin(valid_patients)].copy()
+    df_clinical = df_clinical[df_clinical['patient_id'].isin(valid_patients)].copy()
     print(f"\n[FILTER-CLINICAL] Removed {n_patients - len(df_clinical)} patients with no samples in processed metadata.")
 
     # saving to files
@@ -156,12 +160,11 @@ def perform_split_and_save(df_clean, df_clinical):
     print(f"\n[PATIENT-LEVEL stratified split]")
     df_patients = df_clean[['patient_id', target_col_metadata]].drop_duplicates(subset=['patient_id'], keep='first')
 
-    # merge for stratification on both targets (sample and patient)
-    clinical_patient_key = df_clinical.columns[0]
+    # TODO? add bool to enable or not. Se enabled serve fare check per escludere quelle troppo rare?
+    '''# merge for stratification on both targets (sample and patient)
     df_patients = df_patients.merge(
-        df_clinical[[clinical_patient_key, target_col_clinical]],
-        left_on='patient_id',
-        right_on=clinical_patient_key,
+        df_clinical[['patient_id', target_col_clinical]],
+        on='patient_id',
         how='inner'
     )
     df_patients['composite_target'] = (
@@ -169,15 +172,15 @@ def perform_split_and_save(df_clean, df_clinical):
             df_patients[target_col_clinical].astype(str)
     )
 
-    print("Composite Target (by patient) distribution:\n", df_patients['composite_target'].value_counts())
+    print("Composite Target (by patient) distribution:\n", df_patients['composite_target'].value_counts())'''
 
     # split train / val+test
     train_pts_df, val_test_pts_df = train_test_split(
         df_patients,
         test_size=ratio_val_test,
         random_state=RANDOM_SEED,
-        #stratify=df_patients[target_col_metadata]
-        stratify=df_patients['composite_target']
+        stratify=df_patients[target_col_metadata]
+        #stratify=df_patients['composite_target']
     )
 
     # split val / test (remaining patients)
@@ -185,8 +188,8 @@ def perform_split_and_save(df_clean, df_clinical):
         val_test_pts_df,
         test_size=ratio_test,
         random_state=RANDOM_SEED,
-        #stratify=val_test_pts_df[target_col_metadata]
-        stratify=val_test_pts_df['composite_target']
+        stratify=val_test_pts_df[target_col_metadata]
+        #stratify=val_test_pts_df['composite_target']
     )
 
     # patient mapping to retrieve related tissues
@@ -228,72 +231,8 @@ if __name__ == "__main__":
     clinical_table = pd.read_csv(clinical_filepath, sep='\t')
 
     metadata_table_cleaned, clinical_table_cleaned = clean_feature_cols(metadata_table, clinical_table)
-    #metadata_table = enrich_metadata_with_clinical_features(metadata_table)
-    metadata_table_filtered, clinical_table_filtered = clean_and_filter_target(metadata_table_cleaned, clinical_table_cleaned)
+    metadata_table_cleaned, clinical_table_cleaned = clean_and_filter_target(metadata_table_cleaned, clinical_table_cleaned)
 
-    perform_split_and_save(metadata_table_filtered, clinical_table_filtered)
+    perform_split_and_save(metadata_table_cleaned, clinical_table_cleaned)
 
     print("\nDONE!\n")
-
-
-
-'''
-def enrich_metadata_with_clinical_features(df_metadata):
-    """ Add patients features to metadata if needed. """
-    df_clinical = pd.read_csv(clinical_filepath, sep='\t')
-
-    patient_key_clinical = df_clinical.columns[0]
-    cols_to_keep = [patient_key_clinical]
-
-    if config_file_tree.USE_CLINICAL_DATA:
-        cols_to_keep += list(clinical_cols_to_extract)
-
-    if target_col_metadata in df_clinical.columns and target_col_metadata not in cols_to_keep:
-        cols_to_keep.append(target_col_metadata)
-
-    if target_col_metadata in cols_to_keep:
-        print(f"Target feature from clinical data: {target_col_metadata}\n")
-    else:
-        if target_col_metadata not in df_metadata.columns:
-            raise KeyError("Target column neither in metadata nor in clinical data.")
-
-    existing_cols = [col for col in cols_to_keep if col in df_clinical.columns]
-    missing_cols = set(cols_to_keep) - set(existing_cols)
-    if missing_cols:
-        print(f"[WARNING] The following specified columns were not found in clinical file: {missing_cols}")
-
-    cols_for_merge = list(dict.fromkeys(existing_cols))
-    df_clinical_sub = df_clinical[cols_for_merge].copy()
-
-    # avoid cols duplication (es. _x, _y) if re-execution
-    for col in existing_cols:
-        if col in df_metadata.columns:
-            df_metadata.drop(columns=[col], inplace=True)
-
-    df_clinical_sub[patient_key_clinical] = df_clinical_sub[patient_key_clinical].str.upper()
-    df_metadata['patient_id'] = df_metadata['patient_id'].str.upper()
-
-    print(f"Merging clinical data on: 'patient_id' (metadata) <-> '{patient_key_clinical}' (clinical)...")
-    df_merged = df_metadata.merge(
-        df_clinical_sub,
-        left_on='patient_id',
-        right_on=patient_key_clinical,
-        how='left'
-    )
-
-    # check if some samples remain unmatched
-    na_samples = df_merged[df_merged[patient_key_clinical].isna()]
-    if len(na_samples) > 0:
-        df_merged = df_merged.dropna(subset=[patient_key_clinical])
-        print(f"Excluded {len(na_samples)} samples because no clinical match found.")
-
-    # redundant patient ID col exclusion
-    if patient_key_clinical != 'patient_id' and patient_key_clinical in df_merged.columns:
-        df_merged.drop(columns=[patient_key_clinical], inplace=True)
-
-    print(f"\nClinical and Metadata merged successfully!")
-    print(f"    New dataframe shape: {df_merged.shape}")
-    print(f"    Clinical features added: {existing_cols}")
-
-    return df_merged
-'''

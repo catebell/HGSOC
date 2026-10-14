@@ -59,7 +59,7 @@ def load_and_merge_tpm_tables(
         dfs.append(df)
 
     logging.info("Merging tables by columns...")
-    merged_bulk = concat(dfs, axis=1)
+    merged_bulk = DataFrame(concat(dfs, axis=1)).copy()
 
     if merged_bulk.columns.duplicated().any():
         n_dup = merged_bulk.columns.duplicated().sum()
@@ -70,7 +70,7 @@ def load_and_merge_tpm_tables(
 
     merged_bulk = merged_bulk.fillna(0.0)
 
-    merged_bulk.reset_index(inplace=True)
+    merged_bulk = merged_bulk.reset_index()
     merged_bulk.rename(columns={merged_bulk.columns[0]: "gene_id"}, inplace=True)
 
     logging.info(

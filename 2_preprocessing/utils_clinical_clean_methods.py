@@ -256,6 +256,8 @@ def assign_pfi_class(days):
         return 'yes'
     elif days > 365:  # > 1 anno (Platino-Sensible)  # TODO testare poi da cambiare in >=180
         return 'no'
+    #elif days >= 180:
+        return 'no'
     else:
         return None   # In-between category (6-12 mesi) --> excluded if binary task
 

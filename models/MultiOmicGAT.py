@@ -76,14 +76,14 @@ class MultiOmicGAT(Module):
         h_res = self.residual_proj1(x)  # Residual connection
         h = self.gat1(x, edge_index)
         h = self.norm1(h)
-        h = h + h_res  # TODO pre-norm vs post-norm?
+        h = h + h_res
         h = F.elu(h)  # ELU activation (GAT standard)
 
         # --- LAYER 2 ---
         h_res = self.residual_proj2(h)
         h = self.gat2(h, edge_index)
         h = self.norm2(h)
-        h = h + h_res  # TODO pre-norm vs post-norm?
+        h = h + h_res
         h = F.elu(h)
 
         mean_pool = global_mean_pool(h, batch)

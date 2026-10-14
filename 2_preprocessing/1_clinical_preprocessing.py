@@ -74,24 +74,18 @@ features_considered = [
 if __name__ == "__main__":
     df_clinical = read_csv(path_to_clinical_file,sep='\t', index_col=0)
 
-    patient_id_col = df_clinical.columns[0]
-    df_clinical[patient_id_col] = df_clinical[patient_id_col].str.upper()
-
     # Filter dataset to available features in file
     available_features = [col for col in features_considered if col in df_clinical.columns]
     df_clinical = df_clinical[available_features].copy()
+
+    if 'Patient_cohort_code_Patient_Card' in df_clinical.columns:
+        df_clinical = df_clinical.rename(columns={'Patient_cohort_code_Patient_Card': 'patient_id'})
+        df_clinical['patient_id'] = df_clinical['patient_id'].str.upper()
 
     if 'Histology'in df_clinical.columns:
         if 'Histology_re_evaluated_notes' in df_clinical.columns:
             df_clinical['Histology'] = df_clinical.apply(correct_histology, axis=1)
             df_clinical = df_clinical.drop(columns=['Histology_re_evaluated_notes'])
-
-        # filter out samples of patient with Histology != "hgsc"
-        hgsc_patients = df_clinical[df_clinical['Histology'] == 'high grade serous']['Patient_cohort_code_Patient_Card']
-        n_patients = len(df_clinical['Patient_cohort_code_Patient_Card'].unique())
-        df_clinical = df_clinical[df_clinical['Patient_cohort_code_Patient_Card'].isin(hgsc_patients)]
-        print(
-            f"\nDiscarded {n_patients - len(df_clinical['Patient_cohort_code_Patient_Card'].unique())} patients not strictly High Grade Serous OC.\n")
 
     if 'Residual_tumor_PDS' in df_clinical.columns and 'Residual_tumor_IDS' in df_clinical.columns:
         df_clinical['Residual_tumor_PDS'] = df_clinical['Residual_tumor_PDS'].fillna(df_clinical['Residual_tumor_IDS'])

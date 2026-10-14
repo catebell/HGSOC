@@ -7,7 +7,7 @@ from torch_geometric.nn import GATv2Conv, global_mean_pool, global_max_pool, Bat
 
 
 class GAT(torch.nn.Module):
-    def __init__(self, num_node_features, num_classes, hidden_channels, heads=2, num_sample_features=0, num_edge_features=0):
+    def __init__(self, num_node_features, num_classes, hidden_channels, heads=2, dropout=0.5, num_sample_features=0, num_edge_features=0):
         super(GAT, self).__init__()
 
         self.num_sample_features = num_sample_features
@@ -27,7 +27,7 @@ class GAT(torch.nn.Module):
         base_emb_dim = hidden_channels * 2
         self.emb_dim = base_emb_dim + num_sample_features
 
-        self.dropout = torch.nn.Dropout(0.5)
+        self.dropout = torch.nn.Dropout(dropout)
         self.classifier = torch.nn.Linear(self.emb_dim, num_classes)
 
 
