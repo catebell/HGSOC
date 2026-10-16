@@ -65,15 +65,30 @@ path_graphs_dir = config_file_tree.PROCESSED_GRAPHS_DIR
 
 pretrained_sample_encoder_path = config_file_tree.PRETRAINED_SAMPLE_ENCODER
 
-output_dir = os.path.join("trained_models")
-os.makedirs(output_dir, exist_ok=True)
-
+# OUTPUT DIRECTORIES & PATHS CONFIGURATION
 curr_date = datetime.now().strftime('%d_%m_%Y')
-gat_global_model_filename = f"best_GAT_{sample_target_column}_{'withMeta' if use_metadata else 'noMeta'}_{curr_date}.pt"
-mil_global_model_filename = f"best_MIL_{patient_target_col}_{'withClin' if use_clinical else 'noClin'}_{curr_date}.pt"
+output_base_dir = os.path.join("trained_models", curr_date)
 
-label_encoder_savename_sample = f"label_encoder_{sample_target_column}_{curr_date}.joblib"
-label_encoder_savename_patient = f"label_encoder_patient_{patient_target_col}_{curr_date}.joblib"
+# GAT Output Paths
+gat_output_dir = os.path.join(output_base_dir, "GAT")
+gat_learning_curves_dir = os.path.join(gat_output_dir, "learning_curves")
+os.makedirs(gat_learning_curves_dir, exist_ok=True)
+
+gat_global_model_path = os.path.join(gat_output_dir, f"best_GAT_{sample_target_column}_{'withMeta' if use_metadata else 'noMeta'}.pt")
+label_encoder_sample_path = os.path.join(gat_output_dir, f"label_encoder_{sample_target_column}.joblib")
+metadata_preprocessors_path = os.path.join(gat_output_dir, f"metadata_preprocessors_{sample_target_column}.joblib")
+node_scaler_path = os.path.join(gat_output_dir, f"node_scaler_{sample_target_column}.joblib")
+gat_report_filename = "report_kfold_test_results_GAT.csv"
+
+# MIL Output Paths
+mil_output_dir = os.path.join(output_base_dir, "MIL")
+mil_learning_curves_dir = os.path.join(mil_output_dir, "learning_curves")
+os.makedirs(mil_learning_curves_dir, exist_ok=True)
+
+mil_global_model_path = os.path.join(mil_output_dir, f"best_MIL_{patient_target_col}_{'withClin' if use_clinical else 'noClin'}.pt")
+label_encoder_patient_path = os.path.join(mil_output_dir, f"label_encoder_patient_{patient_target_col}.joblib")
+clinical_preprocessors_path = os.path.join(mil_output_dir, f"clinical_preprocessors_{patient_target_col}.joblib")
+mil_report_filename = "report_kfold_test_results_MIL.csv"
 
 
 """"" loading metadata and clinical data """""
@@ -109,7 +124,7 @@ if task == 'classification':
     df_metadata_train_val[sample_target_column] = label_encoder_sample.transform(df_metadata_train_val[sample_target_column])
     df_metadata_test[sample_target_column] = label_encoder_sample.transform(df_metadata_test[sample_target_column])
 
-    joblib.dump(label_encoder_sample, os.path.join(output_dir, label_encoder_savename_sample))
+    joblib.dump(label_encoder_sample, label_encoder_sample_path)
     logging.info(f"Sample classes identified {sample_target_column}:    " + str(label_encoder_sample.classes_))
 else:
     logging.info(f"Starting training on survival task using target event: {sample_target_column}\n")
@@ -120,7 +135,7 @@ if config_file_tree.PATIENTS_LEVEL_TRAIN:
     df_clinical_clean[patient_target_col] = label_encoder_patient.fit_transform(df_clinical_clean[patient_target_col])
 
     num_classes_patient_target = len(label_encoder_patient.classes_)
-    joblib.dump(label_encoder_patient, os.path.join(output_dir, label_encoder_savename_patient))
+    joblib.dump(label_encoder_patient, label_encoder_patient_path)
     logging.info(f"Patient classes identified for MIL ({patient_target_col}):   {label_encoder_patient.classes_}\n")
 
     # dict patient_id -> patient_target
@@ -201,7 +216,7 @@ elif task == 'survival':
 """"" k-fold train loop """""
 
 groups = df_metadata_train_val['patient_id'].values
-sgkf = StratifiedGroupKFold(n_splits=2, shuffle=True, random_state=7)
+sgkf = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=7)
 
 samples_fold_results = []
 patients_fold_results = []
@@ -328,17 +343,6 @@ for fold, (train_idx, val_idx) in enumerate(sgkf.split(train_val_dataset, y_skf,
             heads=gat_heads,
             num_sample_features=num_sample_features if use_metadata else 0,
         ).to(device)
-    """
-    elif task == 'survival':
-        model_samples_encoder = MultiOmicGATSurvival(
-            in_node_features=num_genes_features,
-            hidden_dim=64,
-            out_channels=1,
-            heads=2,
-            dropout_rate=0.3,
-            num_samples_features=num_sample_features if use_metadata else 0,
-        ).to(device)
-    """
 
 
     """"" fold specific dataset separation and DataLoader """""
@@ -389,13 +393,6 @@ for fold, (train_idx, val_idx) in enumerate(sgkf.split(train_val_dataset, y_skf,
                     logging.info("IMPROVEMENT!\n")
                     best_val_loss = val_loss
                     fold_best_gat_weights = {k: v.cpu().clone() for k, v in model_samples_encoder.state_dict().items()}
-                    # save for each fold
-                    #torch.save(model_samples_encoder.state_dict(), os.path.join(output_dir, f"best_model_samples_fold_{fold + 1}.pt"))
-                    #joblib.dump(fold_node_scaler, os.path.join(output_dir, f"node_scaler_{sample_target_column}_fold{fold + 1}.joblib"))
-                    # saving preprocessors for evaluation/model_samples_encoder usage
-                    #save_path = os.path.join(output_dir, f"metadata_preprocessors_fold{fold + 1}.joblib")
-                    #joblib.dump({'encoders': encoders, 'scalers': scalers, 'imputers': imputers, 'categories': categories}, save_path)
-
                     early_stopping_counter = 0
                 else:
                     early_stopping_counter += 1
@@ -427,29 +424,25 @@ for fold, (train_idx, val_idx) in enumerate(sgkf.split(train_val_dataset, y_skf,
 
         save_learning_curves(
             history_gat,
-            model_name='GAT',
             fold_num=fold + 1,
+            output_dir=gat_learning_curves_dir
         )
 
-        #best_model_path = os.path.join(output_dir, model_name)
-        #model_samples_encoder.load_state_dict(torch.load(best_model_path, map_location=device))
         is_global_best = (best_val_loss < global_best_gat_score) if task == 'classification' else (
                     best_val_c_index > global_best_gat_score)
         if is_global_best and fold_best_gat_weights is not None:
             logging.info(
-                f"*** GLOBAL BEST GAT UPDATED! Fold {fold + 1} score ({best_val_loss:.4f}) beat global best ({global_best_gat_score:.4f}). Overwriting {gat_global_model_filename} ***\n")
+                f"*** GLOBAL BEST GAT UPDATED! Fold {fold + 1} score ({best_val_loss:.4f}) beat global best ({global_best_gat_score:.4f}). Overwriting {gat_global_model_path} ***\n")
             global_best_gat_score = best_val_loss
-            torch.save(fold_best_gat_weights, os.path.join(output_dir, gat_global_model_filename))
+            torch.save(fold_best_gat_weights, gat_global_model_path)
 
-            save_path = os.path.join(output_dir, f"node_scaler_{sample_target_column}_{curr_date}.joblib")
-            joblib.dump(node_scaler, save_path)
-            logging.info(f"Saved best node scaler to {save_path}")
+            joblib.dump(node_scaler, node_scaler_path)
+            logging.info(f"Saved best node scaler to {node_scaler_path}")
 
             if use_metadata and fold_metadata_preprocessors is not None:
                 # saving preprocessors for evaluation/model_samples_encoder usage
-                save_path = os.path.join(output_dir, f"metadata_preprocessors_{sample_target_column}_{curr_date}.joblib")
-                joblib.dump(fold_metadata_preprocessors, save_path)
-                logging.info(f"Saved best metadata preprocessors to {save_path}")
+                joblib.dump(fold_metadata_preprocessors, metadata_preprocessors_path)
+                logging.info(f"Saved best metadata preprocessors to {metadata_preprocessors_path}")
 
         # Carica i pesi migliori del fold per la valutazione sul Test set del fold corrente
         if fold_best_gat_weights is not None:
@@ -654,11 +647,6 @@ for fold, (train_idx, val_idx) in enumerate(sgkf.split(train_val_dataset, y_skf,
             if val_loss < best_val_loss:
                 logging.info("PATIENT MODEL IMPROVEMENT!\n")
                 best_val_loss = val_loss
-                # save for each fold
-                #torch.save(model_patient_encoder.state_dict(), os.path.join(output_dir, f"best_model_patients_fold_{fold + 1}.pt"))
-                # saving preprocessors for evaluation/model_patients usage
-                #joblib.dump({'encoders': p_encoders, 'scalers': p_scalers, 'imputers': p_imputers, 'categories': p_categories}, os.path.join(output_dir, f"clinical_preprocessors_fold{fold + 1}.joblib"))
-
                 fold_best_mil_weights = {k: v.cpu().clone() for k, v in model_patient_encoder.state_dict().items()}
                 early_stopping_counter = 0
             else:
@@ -670,24 +658,21 @@ for fold, (train_idx, val_idx) in enumerate(sgkf.split(train_val_dataset, y_skf,
 
         save_learning_curves(
             history_mil,
-            model_name='MIL',
             fold_num=fold + 1,
+            output_dir=mil_learning_curves_dir
         )
 
         # Test Evaluation on best patient encoder model
-        #model_patient_encoder.load_state_dict(torch.load(os.path.join(output_dir, name_model_patient), map_location=device))
-        # CHECK CONFRONTATIVO MIL GLOBALE
         if best_val_loss < global_best_mil_loss and fold_best_mil_weights is not None:
             logging.info(
-                f"*** GLOBAL BEST MIL UPDATED! Fold {fold + 1} loss ({best_val_loss:.4f}) beat global best ({global_best_mil_loss:.4f}). Overwriting {mil_global_model_filename} ***\n")
+                f"*** GLOBAL BEST MIL UPDATED! Fold {fold + 1} loss ({best_val_loss:.4f}) beat global best ({global_best_mil_loss:.4f}). Overwriting {mil_global_model_path} ***\n")
             global_best_mil_loss = best_val_loss
-            torch.save(fold_best_mil_weights, os.path.join(output_dir, mil_global_model_filename))
+            torch.save(fold_best_mil_weights, mil_global_model_path)
 
             if use_clinical and fold_clinical_preprocessors is not None:
                 # saving preprocessors for evaluation/model_patients usage
-                save_path = os.path.join(output_dir, f"clinical_preprocessors_{patient_target_col}_{curr_date}.joblib")
-                joblib.dump(fold_clinical_preprocessors, save_path)
-                logging.info(f"Saved best clinical preprocessors to {save_path}")
+                joblib.dump(fold_clinical_preprocessors, clinical_preprocessors_path)
+                logging.info(f"Saved best clinical preprocessors to {clinical_preprocessors_path}")
         if fold_best_mil_weights is not None:
             model_patient_encoder.load_state_dict(fold_best_mil_weights)
 
@@ -708,10 +693,10 @@ for fold, (train_idx, val_idx) in enumerate(sgkf.split(train_val_dataset, y_skf,
 """"" folds evaluation summary """""
 
 logging.info("--- SAMPLE LEVEL RESULTS ---")
-show_fold_results(pd.DataFrame(samples_fold_results), task, save_to_csv=True, dir_to_save=output_dir)
+show_fold_results(pd.DataFrame(samples_fold_results), task, save_to_csv=True, dir_to_save=gat_output_dir, filename=gat_report_filename)
 
 if config_file_tree.PATIENTS_LEVEL_TRAIN and patients_fold_results:
     logging.info("--- PATIENT LEVEL RESULTS ---")
-    show_fold_results(pd.DataFrame(patients_fold_results), task, save_to_csv=True, dir_to_save=output_dir)
+    show_fold_results(pd.DataFrame(patients_fold_results), task, save_to_csv=True, dir_to_save=mil_output_dir, filename=mil_report_filename)
 
 logging.info("DONE\n")

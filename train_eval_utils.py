@@ -40,23 +40,6 @@ def get_memory_usage():
 
 """"" clinical pre training preprocessing """""
 
-# filter cols_to_keep to prevent data leakage
-LEAKAGE_MAP = { # todo check e completare elenco rimozione colonne di leakage o superflue per la task, se proprio non ho nulla da fare. per ora selezionate a mano
-    # Primary Therapy Response Yes No classification:
-
-    # Platinum resistant classification:
-    'platinum_resistant': ['PFI_days', 'PFS_days', 'Progression_Yes_No', 'had_progression_therapy'],
-
-    # Overall Survival task:
-    'Survival': ['PFI_days', 'platinum_resistant'],
-    # Progression Free Survival:
-    'PFS_days': ['had_progression_therapy', 'PFI_days', 'platinum_resistant', 'Survival', 'OS_days', 'Primary_therapy_outcome'],
-
-    # Progression Yes No classification:
-    'Progression_Yes_No': ['PFS_days', 'PFI_days', 'platinum_resistant', 'had_progression_therapy']
-}
-
-
 def pre_train_imputation_encoding(df, task, target_col = None, is_train=True, encoders=None, scalers=None, imputers=None, categories=None):
     """
     Clinical nan imputation, reformatting, normalization and target column codification preventing data leakage.
@@ -74,13 +57,6 @@ def pre_train_imputation_encoding(df, task, target_col = None, is_train=True, en
 
     if target_col not in df_norm.columns:
         raise KeyError(f"CHECK target column ({target_col}) is missing from data! ")
-
-    leakage_cols = LEAKAGE_MAP.get(target_col, []) if target_col else []
-    cols_to_drop = set(leakage_cols)
-
-    if cols_to_drop:
-        df_norm = df_norm.drop(columns=[col for col in cols_to_drop if col in df_norm.columns])
-
 
     if task == 'classification':
         target_cols = [target_col]

@@ -17,7 +17,7 @@ import config_file_tree
 from PatientBagDataset import PatientBagDataset
 from models.GAT import GAT
 from models.PatientMIL import PatientMILModel
-from train_eval_utils import pre_train_imputation_encoding
+from train_eval_utils import pre_train_imputation_encoding, print_details
 from PatientSampleDataset import PatientSampleDataset, update_graphs_metadata
 from models.MultiOmicGATSurvival import MultiOmicGATSurvival, CoxPHLoss
 from train_functions import (
@@ -83,14 +83,6 @@ params_grid_architecture = {  # TODO check hidden_channels = 128, heads = 4, dro
     'weight_decay': [1e-4]
 }
 
-params_grid_heavy = {
-    'lr': [0.001],
-    'hidden_channels': [128, 256],
-    'heads': [4, 8],
-    'dropout': [0.2, 0.3],
-    'batch_size': [16],
-    'weight_decay': [1e-4]
-}
 
 params_grid_optimization = {
     'lr': [0.001, 0.0005],
@@ -101,7 +93,7 @@ params_grid_optimization = {
     'weight_decay': [1e-4, 1e-3]
 }
 
-keys, values = zip(*params_grid_heavy.items())
+keys, values = zip(*params_grid_architecture.items())
 combinations = [dict(zip(keys, v)) for v in itertools.product(*values)]
 logging.info(f"Total combinations for Grid Search testing: {len(combinations)}\n")
 
@@ -155,21 +147,7 @@ logging.info("Pre-loading graphs into RAM...")
 train_val_dataset = [raw_train_val_dataset[i] for i in
                      tqdm(range(len(raw_train_val_dataset)), desc="Loading Train/Val")]
 
-'''
-# Feature ablation/slicing
-node_feature_index = getattr(config_file_tree, "NODE_FEATURE_INDEX", None)
-node_feature_names = getattr(config_file_tree, "NODE_FEATURE_NAMES", None)
 
-if node_feature_index is not None:
-    feature_name = node_feature_names[node_feature_index]
-    logging.info(f"Ablation Test: Using node feature '{feature_name}' (index {node_feature_index})")
-    for graph in train_val_dataset:
-        graph.x = graph.x[:, node_feature_index:node_feature_index + 1]
-        graph.node_feature_names = [feature_name]
-else:
-    for graph in train_val_dataset:
-        graph.node_feature_names = node_feature_names
-'''
 for graph in train_val_dataset:
     graph.x_raw = graph.x.clone()
 
@@ -299,26 +277,30 @@ for i, params in enumerate(combinations):
     gat_metrics = {}
 
     # 1. SAMPLES LEVEL TRAINING (GAT)
-    if samples_level_train:
-        if task == 'classification':
-            model_samples_encoder = GAT(
-                num_node_features=num_genes_features,
-                num_classes=num_classes_samples,
-                hidden_channels=params['hidden_channels'],
-                heads=params['heads'],
-                dropout=params['dropout'],
-                num_sample_features=num_sample_features if use_metadata else 0,
-            ).to(device)
-        elif task == 'survival':
-            model_samples_encoder = MultiOmicGATSurvival(
-                in_node_features=num_genes_features,
-                hidden_dim=params['hidden_channels'],
-                out_channels=1,
-                heads=params['heads'],
-                dropout_rate=params['dropout'],
-                num_samples_features=num_sample_features if use_metadata else 0,
-            ).to(device)
 
+    if task == 'classification':
+        model_samples_encoder = GAT(
+            num_node_features=num_genes_features,
+            num_classes=num_classes_samples,
+            hidden_channels=params['hidden_channels'],
+            heads=params['heads'],
+            dropout=params['dropout'],
+            num_sample_features=num_sample_features if use_metadata else 0,
+        ).to(device)
+
+    elif task == 'survival':
+        model_samples_encoder = MultiOmicGATSurvival(
+            in_node_features=num_genes_features,
+            hidden_dim=params['hidden_channels'],
+            out_channels=1,
+            heads=params['heads'],
+            dropout_rate=params['dropout'],
+            num_samples_features=num_sample_features if use_metadata else 0,
+        ).to(device)
+
+    print_details(model_samples_encoder)
+
+    if samples_level_train:
         optimizer_samples = torch.optim.AdamW(model_samples_encoder.parameters(), lr=params['lr'],
                                               weight_decay=params['weight_decay'])
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_samples,
@@ -379,9 +361,8 @@ for i, params in enumerate(combinations):
         # Save Learning Curves plot for current GAT configuration
         save_learning_curves(
             history_gat,
-            model_name=f'GAT_grid_cfg{i + 1}',
             fold_num=i+1,
-            output_dir=os.path.join(output_dir, 'learning_curves_grid_search'),
+            output_dir=os.path.join(output_dir, 'learning_curves_grid_search', f'GAT_grid_cfg{i + 1}'),
             is_grid_search=True
         )
 
@@ -389,20 +370,12 @@ for i, params in enumerate(combinations):
 
     else:
         # Load pre-trained encoder if SAMPLES_LEVEL_TRAIN is False
-        if task == 'classification':
-            model_samples_encoder = GAT(
-                num_node_features=num_genes_features,
-                num_classes=num_classes_samples,
-                hidden_channels=params['hidden_channels'],
-                heads=params['heads'],
-                dropout=params['dropout'],
-                num_sample_features=num_sample_features if use_metadata else 0,
-            ).to(device)
-
         logging.info(f"Loading pre-trained Sample Encoder from: {pretrained_sample_encoder_path}")
         model_samples_encoder.load_state_dict(torch.load(pretrained_sample_encoder_path, map_location=device))
 
+
     # 2. PATIENTS LEVEL TRAINING (MIL)
+
     mil_metrics = {}
     if patients_level_train:
         if best_gat_weights is not None:
@@ -453,9 +426,8 @@ for i, params in enumerate(combinations):
         # Save Learning Curves plot for current MIL configuration
         save_learning_curves(
             history_mil,
-            model_name=f'MIL_grid_cfg{i + 1}',
             fold_num=i+1,
-            output_dir=os.path.join('learning_curves_grid_search'),
+            output_dir=os.path.join('learning_curves_grid_search', f'MIL_grid_cfg{i + 1}'),
             is_grid_search=True
         )
 

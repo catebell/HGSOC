@@ -25,10 +25,15 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 logging.info(f"Using device: {device}")
 
 # Directories and Settings
+models_date = "15_10_2026"  # Nome della cartella/data dei modelli salvati in trained_models/
+
 OUTPUT_DIR = "mil_patients_explained"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-MIL_MODEL_PATH = os.path.join(config_file_tree.TRAINED_MODELS_DIR, f"best_MIL_{config_file_tree.PATIENT_TARGET_COL}_{'withClin' if config_file_tree.USE_CLINICAL_DATA else 'noClin'}.pt")
+MIL_MODELS_DIR = os.path.join("trained_models", models_date, "MIL")
+GAT_MODELS_DIR = os.path.join("trained_models", models_date, "GAT")
+
+MIL_MODEL_PATH = os.path.join(MIL_MODELS_DIR, f"best_MIL_{config_file_tree.PATIENT_TARGET_COL}_{'withClin' if config_file_tree.USE_CLINICAL_DATA else 'noClin'}.pt")
 
 GRAPHS_DIR = config_file_tree.PROCESSED_GRAPHS_DIR
 METADATA_PATH = os.path.join(config_file_tree.SPLIT_DIR, "metadata_for_training.tsv")
@@ -238,7 +243,7 @@ def main():
     clinical_patient_id_col = 'patient_id' if 'patient_id' in df_clinical.columns else df_clinical.columns[0]
     df_clinical_clean = df_clinical.dropna(subset=[PATIENT_TARGET_COL]).copy()
 
-    patient_label_encoder_path = os.path.join(config_file_tree.TRAINED_MODELS_DIR, f"label_encoder_patient_{PATIENT_TARGET_COL}.joblib")
+    patient_label_encoder_path = os.path.join(MIL_MODELS_DIR, f"label_encoder_patient_{PATIENT_TARGET_COL}.joblib")
     if os.path.exists(patient_label_encoder_path):
         label_encoder_patient = joblib.load(patient_label_encoder_path)
         df_clinical_clean[PATIENT_TARGET_COL] = label_encoder_patient.transform(df_clinical_clean[PATIENT_TARGET_COL])
@@ -258,7 +263,7 @@ def main():
     num_clinical_features = 0
 
     if USE_CLINICAL:
-        clin_prep_path = os.path.join(config_file_tree.TRAINED_MODELS_DIR, "clinical_preprocessors_fold1.joblib")
+        clin_prep_path = os.path.join(MIL_MODELS_DIR, f"clinical_preprocessors_{PATIENT_TARGET_COL}.joblib")
         if os.path.exists(clin_prep_path):
             p_dict = joblib.load(clin_prep_path)
             df_clinical_proc = pre_train_imputation_encoding(
@@ -293,7 +298,7 @@ def main():
         target_col=SAMPLE_TARGET_COL
     )
 
-    node_scaler_path = os.path.join(config_file_tree.TRAINED_MODELS_DIR, "node_scaler_fold1.joblib")
+    node_scaler_path = os.path.join(GAT_MODELS_DIR, f"node_scaler_{SAMPLE_TARGET_COL}.joblib")
     if os.path.exists(node_scaler_path):
         node_scaler = joblib.load(node_scaler_path)
         for graph in sample_dataset:
@@ -315,7 +320,7 @@ def main():
     num_unique_genes = sample_dataset[0].x.size(0)
 
     # 5. Initialize GAT and Patient MIL Models
-    sample_target_encoder_path = os.path.join(config_file_tree.TRAINED_MODELS_DIR, f"label_encoder_{SAMPLE_TARGET_COL}.joblib")
+    sample_target_encoder_path = os.path.join(GAT_MODELS_DIR, f"label_encoder_{SAMPLE_TARGET_COL}.joblib")
     num_sample_classes = len(joblib.load(sample_target_encoder_path).classes_) if os.path.exists(sample_target_encoder_path) else len(df_metadata[SAMPLE_TARGET_COL].dropna().unique())
 
     model_samples_encoder = GAT(

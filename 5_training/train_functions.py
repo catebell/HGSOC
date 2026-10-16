@@ -226,7 +226,7 @@ def evaluate_mil(device, model, loader, criterion):
 
 """"" results """""
 
-def show_fold_results(df_fold_results, task, save_to_csv = False, dir_to_save=None):
+def show_fold_results(df_fold_results, task, save_to_csv = False, dir_to_save=None, filename=None):
     from os import path
     if task == 'classification':
         avg_acc = df_fold_results['acc'].mean()
@@ -251,13 +251,12 @@ def show_fold_results(df_fold_results, task, save_to_csv = False, dir_to_save=No
         logging.info("\nFinal folds report saved!\n")
 
 
-def save_learning_curves(history, model_name, fold_num, output_dir='learning_curves', is_grid_search=False):
+def save_learning_curves(history, fold_num, output_dir="learning_curves", is_grid_search=False):
     """
     Plots Train and Val Loss/Metrics curves.
 
     Parameters:
     - history: dict with lists ['train_loss', 'val_loss', 'train_metric', 'val_metric']
-    - model_name: for folder subdivision
     - fold_num: fold index (es. 1, 2, ...)
     - output_dir: root folder
     """
@@ -302,7 +301,7 @@ def save_learning_curves(history, model_name, fold_num, output_dir='learning_cur
         makedirs(save_dir, exist_ok=True)
         save_path = path.join(save_dir, f'cfg{fold_num}.png')
     else:
-        save_dir = path.join(output_dir, model_name)
+        save_dir = path.join(output_dir)
         makedirs(save_dir, exist_ok=True)
         save_path = path.join(save_dir, f'learning_curve_fold{fold_num}.png')
 

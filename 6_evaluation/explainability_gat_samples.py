@@ -10,7 +10,8 @@ import config_file_tree
 from models.GAT import GAT
 from PatientSampleDataset import PatientSampleDataset, update_graphs_metadata
 from train_eval_utils import pre_train_imputation_encoding
-from plot_utils import plot_gene_feature_boxplots, plot_importance_barplot, collect_top_genes_node_features
+from plot_utils import plot_gene_feature_boxplots, plot_importance_barplot, collect_top_genes_node_features, \
+    plot_interactive_gene_network, plot_static_gene_network
 
 # Configure Logging
 logging.basicConfig(
@@ -22,10 +23,13 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 logging.info(f"Using device: {device}")
 
 # Directories and Settings
+models_date = "15_10_2026"  # Nome della cartella/data dei modelli salvati in trained_models/
+
 OUTPUT_DIR = "gat_samples_explained"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-MODEL_PATH = os.path.join(config_file_tree.TRAINED_MODELS_DIR, f"best_GAT_{config_file_tree.SAMPLE_TARGET_COL}_{'withMeta' if config_file_tree.USE_SAMPLES_METADATA else 'noMeta'}.pt")
+TRAINED_MODELS_DIR = os.path.join(config_file_tree.TRAINED_MODELS_DIR, models_date, "GAT")
+MODEL_PATH = os.path.join(TRAINED_MODELS_DIR, f"best_GAT_{config_file_tree.SAMPLE_TARGET_COL}_{'withMeta' if config_file_tree.USE_SAMPLES_METADATA else 'noMeta'}.pt")
 
 GRAPHS_DIR = config_file_tree.PROCESSED_GRAPHS_DIR
 METADATA_PATH = os.path.join(config_file_tree.SPLIT_DIR, "metadata_for_training.tsv")
@@ -224,7 +228,7 @@ def main():
         subset=[SAMPLE_TARGET_COL]).copy()
 
     # 1. Load Target Label Encoder
-    label_encoder_path = os.path.join(config_file_tree.TRAINED_MODELS_DIR, f"label_encoder_{SAMPLE_TARGET_COL}.joblib")
+    label_encoder_path = os.path.join(TRAINED_MODELS_DIR, f"label_encoder_{SAMPLE_TARGET_COL}.joblib")
     if os.path.exists(label_encoder_path):
         label_encoder_sample = joblib.load(label_encoder_path)
         df_metadata_test[SAMPLE_TARGET_COL] = label_encoder_sample.transform(df_metadata_test[SAMPLE_TARGET_COL])
@@ -245,7 +249,7 @@ def main():
     dataset = [raw_dataset[i] for i in range(len(raw_dataset))]
 
     # 3. Load and Apply Node Scaler
-    node_scaler_path = os.path.join(config_file_tree.TRAINED_MODELS_DIR, "node_scaler_fold1.joblib")
+    node_scaler_path = os.path.join(TRAINED_MODELS_DIR, f"node_scaler_{SAMPLE_TARGET_COL}.joblib")
     if os.path.exists(node_scaler_path):
         node_scaler = joblib.load(node_scaler_path)
         for graph in dataset:
@@ -257,8 +261,8 @@ def main():
     metadata_cols = []
     num_sample_features = 0
     if USE_METADATA:
-        meta_prep_path = os.path.join(config_file_tree.TRAINED_MODELS_DIR,
-                                      f"metadata_preprocessors_{config_file_tree.TASK}_fold1.joblib")
+        meta_prep_path = os.path.join(TRAINED_MODELS_DIR,
+                                      f"metadata_preprocessors_{SAMPLE_TARGET_COL}.joblib")
         if os.path.exists(meta_prep_path):
             prep_dict = joblib.load(meta_prep_path)
             df_test_proc = pre_train_imputation_encoding(
@@ -313,6 +317,24 @@ def main():
 
     # 7. Generate Visual Plots
     logging.info("Generating GAT visual plots...")
+
+    edge_tsv_path = os.path.join(OUTPUT_DIR, "gat_edge_attention.tsv")
+
+    # A. Grafo Interattivo HTML
+    plot_interactive_gene_network(
+        tsv_path=edge_tsv_path,
+        output_html=os.path.join(
+            OUTPUT_DIR, "gat_gene_network_interactive.html"
+        ),
+        top_n=50,
+    )
+
+    # B. Grafo Statico PNG
+    plot_static_gene_network(
+        tsv_path=os.path.join(OUTPUT_DIR, "gat_edge_attention.tsv"),
+        output_png=os.path.join(OUTPUT_DIR, "gat_gene_network_static.png"),
+        top_n=50
+    )
 
     df_meta_imp = pd.read_csv(os.path.join(OUTPUT_DIR, "gat_sample_features_importance.tsv"), sep='\t')
     plot_importance_barplot(
