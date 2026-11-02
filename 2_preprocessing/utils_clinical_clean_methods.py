@@ -230,20 +230,20 @@ def process_pfi_features(df):
      """
 
     df = df.copy()
-    df['PFI_days'] = pd.to_numeric(df['PFI_KaplanM_allHGSC'], errors='coerce')
+    df['PFI_KaplanM_allHGSC'] = pd.to_numeric(df['PFI_KaplanM_allHGSC'], errors='coerce')
 
     # exclude based on column stating reason
     if 'Excluded_from_PFI_calculations' in df.columns:
         is_excluded = df['Excluded_from_PFI_calculations'] == 'yes'
-        df.loc[is_excluded, 'PFI_days'] = np.nan
+        df.loc[is_excluded, 'PFI_KaplanM_allHGSC'] = np.nan
 
     if 'Excluded_from_PFI_calculations__reason' in df.columns:
         is_excluded = df['Excluded_from_PFI_calculations__reason'].notna()
-        df.loc[is_excluded, 'PFI_days'] = np.nan
+        df.loc[is_excluded, 'PFI_KaplanM_allHGSC'] = np.nan
 
-    df.loc[df['PFI_days'] < 0, 'PFI_days'] = np.nan
+    df.loc[df['PFI_KaplanM_allHGSC'] < 0, 'PFI_KaplanM_allHGSC'] = np.nan
 
-    df['is_platinum_resistant'] = df['PFI_days'].apply(assign_pfi_class)
+    df['is_platinum_resistant'] = df['PFI_KaplanM_allHGSC'].apply(assign_pfi_class)
 
     return df
 

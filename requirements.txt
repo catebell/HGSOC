@@ -14,3 +14,7 @@ torch-geometric>=2.5.0
 tqdm>=4.66.0
 networkx
 pyvis
+shap
+omnipath
+gseapy
+streamlit

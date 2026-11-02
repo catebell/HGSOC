@@ -33,6 +33,7 @@ features_considered = [
 
     "Primary_chemotherapy_cycles",
     "NACT_cycles",
+    "RECIST_1.1_Response_to_NACT",
     "Post_IDS_chemotherapy_cycles",
 
     "Primary_therapy_outcome",
@@ -45,7 +46,7 @@ features_considered = [
 
     "PFI_KaplanM_allHGSC", #
     "Excluded_from_PFI_calculations", #
-    "Excluded_from_PFI_calculations__reason", # --> unified in PFI_days + flag is_platinum_resistant
+    "Excluded_from_PFI_calculations__reason", # --> unified in PFI_KaplanM_allHGSC + flag is_platinum_resistant
 
     # old names
     #"OS_overall_survival_Days_from_Dg_to_death", #
@@ -68,6 +69,8 @@ features_considered = [
     "Chronic_illnesses_type",
     "Previous_cancer_yes_no",
     "Previous_cancer_dg",
+
+    "Progression_date_ND__No_prog_at_regular_follow_up_but_no_further_follow_up",
 ]
 
 
@@ -135,8 +138,9 @@ if __name__ == "__main__":
     cols = ['PFI_KaplanM_allHGSC', 'Excluded_from_PFI_calculations', 'Excluded_from_PFI_calculations__reason']
     if 'PFI_KaplanM_allHGSC' in df_clinical.columns:
         df_clinical = process_pfi_features(df_clinical)
+        df_clinical['Excluded_from_PFI_calculations'] = df_clinical['Excluded_from_PFI_calculations'].fillna('no')
         for col in cols:
-            if col in df_clinical.columns:
+            if col in df_clinical.columns and col not in ['PFI_KaplanM_allHGSC', 'Excluded_from_PFI_calculations']:
                 df_clinical = df_clinical.drop(columns=[col])
 
 
@@ -153,6 +157,28 @@ if __name__ == "__main__":
 
     if 'Previous_cancer_dg' in df_clinical.columns:
         df_clinical['Previous_cancer_dg'] = df_clinical['Previous_cancer_dg'].apply(clean_previous_cancers)
+
+    if 'Progression_date_ND__No_prog_at_regular_follow_up_but_no_further_follow_up' in  df_clinical.columns:
+        df_clinical['Progression_date_ND__No_prog_at_regular_follow_up_but_no_further_follow_up'] = df_clinical['Progression_date_ND__No_prog_at_regular_follow_up_but_no_further_follow_up'].fillna('no')
+
+    # Chemo-refractory vs Chemo-sensitive target definition
+    conditions = [
+        # Refractory (y = 1)
+        (df_clinical['RECIST_1.1_Response_to_NACT'].isin(
+            ['stable disease after nact', 'progressive disease after nact'])) |
+        (df_clinical['Primary_therapy_outcome'].isin(['progressive disease', 'stable disease'])) |
+        (df_clinical['PFI_KaplanM_allHGSC'] <= 45.0),
+
+        # Sensible (y = 0)
+        (df_clinical['RECIST_1.1_Response_to_NACT'].isin(
+            ['partial response to nact', 'complete response to nact'])) &
+        (df_clinical['PFI_KaplanM_allHGSC'] > 180.0)
+    ]
+
+    choices = [1, 0]
+    df_clinical['chemo_refractory_target'] = np.select(conditions, choices, default=np.nan)
+
+    df_clinical = df_clinical.drop(columns=['RECIST_1.1_Response_to_NACT'])
 
     # Save preprocessed clinical data
     df_clinical.to_csv(output_filepath, sep='\t', index=False)

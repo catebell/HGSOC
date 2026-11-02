@@ -1,3 +1,5 @@
+import logging
+
 import pandas as pd
 import numpy as np
 import re
@@ -11,25 +13,36 @@ import config_file_tree
 """"" utility """""
 
 def print_details(dataset):
-    print()
-    print(f'Train Dataset: {dataset}:')
-    print('====================')
-    print(f'Number of graphs: {len(dataset)}')
-    print(f'Number of features: {dataset.num_features}')
-    print(f"Node features names: {getattr(dataset[0], 'node_feature_names', 'Unspecified')}")
-    print(f"Node tensor shape: {dataset[0].x.shape}")
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler('execution.log', mode='w'),
+            logging.StreamHandler()
+        ]
+    )
 
-    print(dataset[0])
-    print('=============================================================')
+    print()
+    logging.info(f'Train Dataset: {dataset}:')
+    logging.info('====================')
+    logging.info(f'Number of graphs: {len(dataset)}')
+    logging.info(f'Number of features: {dataset.num_features}')
+    logging.info(f"Node features names: {getattr(dataset[0], 'node_feature_names', 'Unspecified')}")
+    logging.info(f"Node tensor shape: {dataset[0].x.shape}")
+
+    logging.info(dataset[0])
+    logging.info('=============================================================')
 
     # Gather some statistics about the first graph.
-    print(f'Number of nodes: {dataset[0].num_nodes}')
-    print(f'Number of edges: {dataset[0].num_edges}')
-    print(f'Average node degree: {dataset[0].num_edges / dataset[0].num_nodes:.2f}')
-    print(f'Has isolated nodes: {dataset[0].has_isolated_nodes()}')
+    logging.info(f'Number of nodes: {dataset[0].num_nodes}')
+    logging.info(f'Number of edges: {dataset[0].num_edges}')
+    logging.info(f'Average node degree: {dataset[0].num_edges / dataset[0].num_nodes:.2f}')
+    logging.info(f'Has isolated nodes: {dataset[0].has_isolated_nodes()}')
     # print(f'Has self-loops: {dataset[0].has_self_loops()}')  # added internally during GNN forward, checked in gatv2_conv module
-    print(f'Is undirected: {dataset[0].is_undirected()}')
+    logging.info(f'Is undirected: {dataset[0].is_undirected()}')
     print()
+
+    return dataset[0].num_nodes
 
 
 def get_memory_usage():

@@ -1,21 +1,22 @@
 from os import path, makedirs
 from shutil import rmtree
 
-import numpy as np
 import torch
 from numpy import column_stack
 from torch import tensor, save
 from torch_geometric.data import Data
-from pandas import read_csv, DataFrame
+from pandas import read_csv, DataFrame, concat
+from torch_geometric.transforms import VirtualNode
 from tqdm import tqdm
 
 import PCA
 import config_file_tree
-from ppi_build import build_edge_index
+from build_edge_index import build_edge_index
 
 """"" Data conversion in PyTorch Geometric Data objects that will be passed to the GNN.
 Each graph (Data) will represent a single tissue (its genes = nodes, ppi = edges, expression values = node features).
 Node features vector x layout:
+see config_file_tree.NODE_FEATURE_NAMES:
 - Feature 0: Gene Expression
 - Feature 1: log2CopyNumber
 - Feature 2: nMajor
@@ -41,8 +42,8 @@ output_graphs_dir = config_file_tree.PROCESSED_GRAPHS_DIR
 output_selected_genes_filepath = path.join(output_dir, "selected_genes.tsv")
 output_metadata_filepath = path.join(output_dir, "associated_metadata.tsv")
 
-TOP_RNA_GENES = 5000
-TOP_CN_GENES = 2000
+TOP_RNA_GENES = 2500
+TOP_CN_GENES = 1000
 
 CNV_FEATURE_COLS = ['log2CopyNumber', 'nMajor', 'nMinor', 'Loh', 'breaksInGene']
 
@@ -61,6 +62,15 @@ def filter_patients(df_clinical):
 
 
 def filter_tissues(df_metadata, clinical_patients):
+    """ Exclude samples belonging to patients not appearing in clinical data. """
+
+    n_before = len(df_metadata)
+    df_metadata = df_metadata[df_metadata['patient_id'].isin(clinical_patients)]
+    print(f"Discarded {n_before - len(df_metadata)} samples with patient_id not appearing in clinical file.")
+
+    return df_metadata
+
+'''def filter_tissues(df_metadata, clinical_patients):
     """ Exclude some samples based on their features values. """
 
     n_before = len(df_metadata)
@@ -85,7 +95,7 @@ def filter_tissues(df_metadata, clinical_patients):
         df_metadata = df_metadata[df_metadata['treatment'] == 'Untreated']
         print(f"Discarded {n_before - len(df_metadata)} samples with treatment != 'Untreated'.")
 
-    return df_metadata
+    return df_metadata'''
 
 
 def clean_cnv_outliers(cn_pivots, df_expr, df_metadata, primary_feat='log2CopyNumber'):
@@ -113,82 +123,10 @@ def clean_cnv_outliers(cn_pivots, df_expr, df_metadata, primary_feat='log2CopyNu
     return cn_pivots, df_expr, df_metadata
 
 
-def select_genes(df_expr, primary_cn_pivot, ensg_to_symbol_map):
-    """ Select top genes based on RNA expression and CNV variance plus driver genes. """
-    common_genes = df_expr.index.intersection(primary_cn_pivot.index)
-    print(f"Common Genes in expr and cn tables: {len(common_genes)}")
-
-    df_expr = df_expr.loc[common_genes, :]
-    primary_cn_pivot = primary_cn_pivot.loc[common_genes, :]
-
-    print(f"Computing RNA expression variance...")
-    rna_variances = df_expr.var(axis=1)
-    top_rna_series = rna_variances.nlargest(TOP_RNA_GENES)
-    top_rna_genes_set = set(top_rna_series.index)
-    print(f"Selected top {len(top_rna_genes_set)} genes by RNA expression variance.\n")
-
-    print(f"Computing CN values variance...")
-    #cn_variances = df_cn.groupby('gene_id', observed=True)['purifiedLogR'].var().dropna()
-    cn_variances = primary_cn_pivot.var(axis=1)
-    top_cn_series = cn_variances.nlargest(TOP_CN_GENES)
-    top_cn_genes_set = set(top_cn_series.index)
-    print(f"Selected top {len(top_cn_genes_set)} genes by CN values variance.\n")
-
-    selected_genes_union = top_rna_genes_set.union(top_cn_genes_set)
-    overlap_count = len(top_rna_genes_set.intersection(top_cn_genes_set))
-
-    print("\n--- GENE SELECTION SUMMARY ---")
-    print(f"Top RNA genes count:        {len(top_rna_genes_set)}")
-    print(f"Top CN genes count:         {len(top_cn_genes_set)}")
-    print(f"Overlapping genes count:    {overlap_count}")
-    print(f"Unique Selected genes:   {len(selected_genes_union)}\n")
-
-    print(f"Adding Driver genes from '{driver_genes_filepath}'...")
-    df_drivers = read_csv(driver_genes_filepath, sep='\t')
-    symbol_to_ensg = {v: k for k, v in ensg_to_symbol_map.items()}
-    driver_genes_set = set(df_drivers['Symbol'].map(symbol_to_ensg).dropna())
-
-    print(f"Found {len(driver_genes_set)} unique driver gene symbols in file loaded.")
-    selected_genes_union = top_rna_genes_set.union(top_cn_genes_set).union(driver_genes_set)
-    print(f"Driver genes count:          {len(driver_genes_set)}")
-    new_drivers_added = len(driver_genes_set - top_rna_genes_set - top_cn_genes_set)
-    print(f"New Driver genes added:      {new_drivers_added}")
-    print(f"Total Unique Selected genes:  {len(selected_genes_union)}\n")
-
-    # output dataframe
-    rows = []
-    for gene_id in sorted(selected_genes_union):
-        in_rna = gene_id in top_rna_genes_set
-        in_cn = gene_id in top_cn_genes_set
-
-        if in_rna and in_cn:
-            reason = 'both'
-        elif in_rna:
-            reason = 'RNA_variance'
-        elif in_cn:
-            reason = 'CN_variance'
-        else:
-            reason = 'driver added'
-
-        gene_name = ensg_to_symbol_map.get(gene_id, 'N/A')
-
-        rows.append({
-            'gene_id': gene_id,
-            'gene_name': gene_name,
-            'rna_variance': rna_variances.get(gene_id, np.nan),
-            'cn_variance': cn_variances.get(gene_id, np.nan),
-            'selection_reason': reason
-        })
-
-    df_selected = DataFrame(rows).sort_values(by='rna_variance', ascending=False)
-    df_selected.to_csv(output_selected_genes_filepath, sep='\t', index=False)
-    print(f"Saved selected genes to: '{output_selected_genes_filepath}' (Shape: {df_selected.shape})\n")
-
-
-def generate_all_graphs(df_expr, cn_pivots, df_metadata):
-    """ Build PyG graph objects storing multi-feature node tensors x. """
+def generate_all_graphs(df_expr, cn_pivots, df_metadata, gene_id_to_symbol):
+    """ Build PyG graph objects storing multi-feature node tensors x, adding a Virtual Node for whole message passing. """
     print("Extracting edge index...")
-    edge_index, gene_to_idx = build_edge_index()
+    edge_index, gene_to_idx = build_edge_index(df_expr, cn_pivots['log2CopyNumber'], ensg_to_symbol)
 
     genes_ordered = sorted(gene_to_idx, key=gene_to_idx.get)  # sort to 0,1,2,...
     print(f"Number of nodes (genes) in graph: {len(genes_ordered)}\n")
@@ -234,7 +172,6 @@ def generate_all_graphs(df_expr, cn_pivots, df_metadata):
     feature_names = ['gene_expression'] + list(cn_aligned_dict.keys())
     num_features = len(feature_names)
 
-
     print("Generating PyTorch Geometric graph objects...")
     for sample_id in tqdm(matched_samples):
         # Build array list for column_stack
@@ -257,7 +194,7 @@ def generate_all_graphs(df_expr, cn_pivots, df_metadata):
         save(graph, save_path)
 
     print(f"Save completed for {len(matched_samples)} graphs in {output_graphs_dir}\n")
-    print(f"Node feature tensor shape (x): [{len(genes_ordered)}, {num_features}]\n")
+    print(f"Node feature tensor shape with Virtual Node (x): [{len(genes_ordered)}, {num_features}]\n")
     print(f"Features mapped to node tensor: {feature_names}\n")
 
     df_metadata = df_metadata.loc[matched_samples,:]
@@ -312,8 +249,7 @@ if __name__ == "__main__":
     )
 
     ensg_to_symbol = df_cn.groupby('gene_id', observed=True)['symbol'].first().to_dict()
-    select_genes(expr_table_filtered, cn_pivots['log2CopyNumber'], ensg_to_symbol)
-    used_expr_df, used_cn_df = generate_all_graphs(expr_table_filtered, cn_pivots, metadata_table_filtered)
+    used_expr_df, used_cn_df = generate_all_graphs(expr_table_filtered, cn_pivots, metadata_table_filtered, ensg_to_symbol)
 
     if config_file_tree.RUN_PCA:
         out_dir_pca = path.join('processed_graphs', "PCA_data_used")
@@ -323,3 +259,5 @@ if __name__ == "__main__":
             for group_col in ['cohort', 'tissue', 'tissue_type', 'phase_label', 'is_fluid']:
                 if group_col in metadata_table_filtered.columns:
                     PCA.run_pca_analysis(df, output_metadata_filepath, out_dir_pca, feature_type, group_col)
+
+    print("\nDONE!\n")

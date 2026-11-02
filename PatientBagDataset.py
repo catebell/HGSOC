@@ -40,15 +40,15 @@ class PatientBagDataset(Dataset):
     patient_id = self.patient_ids[index]
     samples_graphs = self.patient_bags[patient_id]
 
-    # each patient's samples are converted to a single disconnected PyG Batch
-    patient_batch = Batch.from_data_list(samples_graphs)
-    target_y = torch.tensor(
-        self.patient_target_map[patient_id], dtype=torch.long
-    )  # patient target class
+    # Crea il batch di tessuti per il singolo paziente
+    patient_bag = Batch.from_data_list(samples_graphs)
+
+    # Salviamo il numero di tessuti e il target come tensori 1D per consentire a PyG di concatenarli
+    patient_bag.num_samples = torch.tensor([len(samples_graphs)], dtype=torch.long)
+    patient_bag.patient_y = torch.tensor([self.patient_target_map[patient_id]], dtype=torch.long)
+    patient_bag.patient_id = [patient_id]
 
     if self.patient_clinical_map is not None and patient_id in self.patient_clinical_map:
-      patient_batch.clinical_x = self.patient_clinical_map[
-        patient_id
-      ].unsqueeze(0) # Shape: [1, num_clinical_features]
+      patient_bag.clinical_x = self.patient_clinical_map[patient_id].unsqueeze(0)  # Shape: [1, num_clinical_features]
 
-    return patient_batch, target_y, patient_id
+    return patient_bag

@@ -1,3 +1,4 @@
+import csv
 import os
 import numpy as np
 import pandas as pd
@@ -19,7 +20,7 @@ ascat_ref_filepath = config_file_tree.ORIGINAL_ASCAT_CN_FILE  # to retrieve gene
 
 output_filepath = os.path.join(config_file_tree.EXTRACTED_DATA_DIR, "raw_cn_data.tsv")
 
-
+'''
 def load_gene_reference(ascat_path):
     """ Extract unique gene annotations and genomic coordinates from reference file. """
     print(f"Loading gene reference coordinates from: {ascat_path}")
@@ -36,6 +37,43 @@ def load_gene_reference(ascat_path):
     df_genes = df_ref.drop_duplicates(subset=['ID', 'Gene']).copy()
 
     # Standardize column names for PyRanges
+    df_genes['Chromosome'] = df_genes['chr'].astype(str)
+    df_genes['Chromosome'] = df_genes['Chromosome'].apply(lambda c: c if c.startswith('chr') else f"chr{c}")
+    df_genes['Start'] = df_genes['start'].astype(int)
+    df_genes['End'] = df_genes['end'].astype(int)
+
+    print(f"Extracted {len(df_genes)} unique genes for annotation.")
+    return df_genes
+'''
+
+def load_gene_reference(ascat_path):
+    """ Extract unique gene annotations and genomic coordinates from reference file safely in chunks. """
+    print(f"Loading gene reference coordinates from: {ascat_path}")
+    ref_cols = ["ID", "Gene", "chr", "start", "end", "strand", "band", "type"]
+
+    # Legge l'intestazione per identificare le colonne racchiuse tra virgolette
+    df_header = pd.read_csv(ascat_path, sep='\t', nrows=0, quoting=csv.QUOTE_NONE)
+    clean_cols_map = {col: col.strip('"') for col in df_header.columns}
+    cols_to_load = [raw_col for raw_col, clean_col in clean_cols_map.items() if clean_col in ref_cols]
+
+    unique_chunks = []
+
+    # Lettura a blocchi con quoting=csv.QUOTE_NONE per prevenire l'errore "EOF inside string"
+    for chunk in pd.read_csv(ascat_path, sep='\t', usecols=cols_to_load,
+                             quoting=csv.QUOTE_NONE, on_bad_lines='skip', chunksize=500000):
+        # Pulisce i nomi delle colonne ed i valori di testo rimuovendo le virgolette residuer
+        chunk.rename(columns=lambda c: c.strip('"'), inplace=True)
+        for col in chunk.columns:
+            chunk[col] = chunk[col].astype(str).str.strip('"')
+
+        # Filtra righe valide con ID gene (es. ENSG...)
+        chunk = chunk[chunk['ID'].str.startswith('ENSG') & (chunk['start'] != 'nan')]
+        chunk_unique = chunk.drop_duplicates(subset=['ID', 'Gene'])
+        unique_chunks.append(chunk_unique)
+
+    df_genes = pd.concat(unique_chunks, ignore_index=True).drop_duplicates(subset=['ID', 'Gene']).copy()
+
+    # Standardizza i nomi delle colonne e i tipi di dati per PyRanges
     df_genes['Chromosome'] = df_genes['chr'].astype(str)
     df_genes['Chromosome'] = df_genes['Chromosome'].apply(lambda c: c if c.startswith('chr') else f"chr{c}")
     df_genes['Start'] = df_genes['start'].astype(int)
@@ -83,7 +121,7 @@ def process_sample_segments(df_sample_purple, pr_genes, df_genes):
     df_joined['weighted_baf'] = df_joined['baf'] * df_joined['overlap_len']
 
     # Group by Sample and Gene ID
-    grouped = df_joined.groupby(['sample', 'ID'], as_index=False).agg(
+    grouped = df_joined.groupby(['sample', 'ID'], as_index=False, observed=True).agg(
         total_overlap=('overlap_len', 'sum'),
         sum_copyNumber=('weighted_copyNumber', 'sum'),
         sum_nMajor=('weighted_nMajor', 'sum'),
@@ -172,7 +210,7 @@ if __name__ == "__main__":
     write_header = True
     total_records = 0
 
-    for sample_name, df_sample in tqdm(df_purple_raw.groupby('sample'), desc="Processing samples"):
+    for sample_name, df_sample in tqdm(df_purple_raw.groupby('sample', observed=True), desc="Processing samples"):
         df_sample_mapped = process_sample_segments(df_sample, pr_genes_ref, df_genes_ref)
         if df_sample_mapped.empty:
             continue
