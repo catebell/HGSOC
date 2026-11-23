@@ -162,19 +162,21 @@ if __name__ == "__main__":
         df_clinical['Progression_date_ND__No_prog_at_regular_follow_up_but_no_further_follow_up'] = df_clinical['Progression_date_ND__No_prog_at_regular_follow_up_but_no_further_follow_up'].fillna('no')
 
     # Chemo-refractory vs Chemo-sensitive target definition
-    conditions = [
-        # Refractory (y = 1)
-        (df_clinical['RECIST_1.1_Response_to_NACT'].isin(
-            ['stable disease after nact', 'progressive disease after nact'])) |
-        (df_clinical['Primary_therapy_outcome'].isin(['progressive disease', 'stable disease'])) |
-        (df_clinical['PFI_KaplanM_allHGSC'] <= 45.0),
+    cond_refractory = (
+        df_clinical['RECIST_1.1_Response_to_NACT'].isin(
+            ['stable disease after nact', 'progressive disease after nact']
+        ) & (df_clinical['PFI_KaplanM_allHGSC'] <= 45.0)
+    )
 
-        # Sensible (y = 0)
-        (df_clinical['RECIST_1.1_Response_to_NACT'].isin(
-            ['partial response to nact', 'complete response to nact'])) &
-        (df_clinical['PFI_KaplanM_allHGSC'] > 180.0)
-    ]
+    cond_sensitive = (
+        df_clinical['RECIST_1.1_Response_to_NACT'].isin(
+            ['partial response to nact', 'complete response to nact']
+        )& (
+            df_clinical['PFI_KaplanM_allHGSC'].isna() | (df_clinical['PFI_KaplanM_allHGSC'] > 180.0)
+        )
+    )
 
+    conditions = [cond_refractory, cond_sensitive]
     choices = [1, 0]
     df_clinical['chemo_refractory_target'] = np.select(conditions, choices, default=np.nan)
 

@@ -8,19 +8,16 @@ import torch
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import StratifiedGroupKFold
-from sklearn.preprocessing import StandardScaler
 from torch.utils.data import Subset
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
 import config_file_tree
 from models.GAT import GAT
-from train_eval_utils import pre_train_imputation_encoding, print_details
+from utils_train_eval import pre_train_imputation_encoding
 from PatientSampleDataset import PatientSampleDataset, update_graphs_metadata
-from models.MultiOmicGATSurvival import MultiOmicGATSurvival, CoxPHLoss
 from train_functions import (
-    train_epoch, evaluate, train_epoch_survival, evaluate_survival,
-    save_learning_curves
+    train_epoch, evaluate, save_learning_curves, SelectiveNodeScaler
 )
 
 # -----------------------------------------------------------------------------
@@ -30,7 +27,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        #logging.FileHandler('grid_search_gat_execution.log', mode='w'),
+        logging.FileHandler('grid_search_gat_execution.log', mode='w'),
         logging.StreamHandler()
     ]
 )
@@ -163,7 +160,7 @@ train_idx, val_idx = next(sgkf.split(train_val_dataset, y_skf, groups=groups))
 
 # Scaling node features in-fold
 train_nodes_np = np.vstack([train_val_dataset[i].x_raw.numpy() for i in train_idx])
-node_scaler = StandardScaler()
+node_scaler = SelectiveNodeScaler()
 node_scaler.fit(train_nodes_np)
 
 for i in train_idx:
@@ -203,8 +200,6 @@ if task == 'classification':
         device)
     criterion_samples = torch.nn.CrossEntropyLoss(weight=class_weights_samples)
     num_classes_samples = len(torch.unique(y_skf))
-elif task == 'survival':
-    criterion_samples = CoxPHLoss()
 
 # Subsets & Datasets
 train_dataset = Subset(train_val_dataset, train_idx)
@@ -234,16 +229,6 @@ for i, params in enumerate(combinations):
             heads=params['heads'],
             dropout=params['dropout'],
             num_sample_features=num_sample_features if use_metadata else 0,
-        ).to(device)
-
-    elif task == 'survival':
-        model_samples_encoder = MultiOmicGATSurvival(
-            in_node_features=num_genes_features,
-            hidden_dim=params['hidden_channels'],
-            out_channels=1,
-            heads=params['heads'],
-            dropout_rate=params['dropout'],
-            num_samples_features=num_sample_features if use_metadata else 0,
         ).to(device)
 
     logging.info(str(model_samples_encoder) + "\n")
@@ -282,30 +267,6 @@ for i, params in enumerate(combinations):
 
             if val_loss < best_val_score:
                 best_val_score = val_loss
-                gat_metrics = val_metrics
-                gat_metrics['val_loss'] = val_loss
-                best_gat_weights = {k: v.cpu().clone() for k, v in model_samples_encoder.state_dict().items()}
-                early_stopping_counter = 0
-            else:
-                early_stopping_counter += 1
-
-        elif task == 'survival':
-            train_loss = train_epoch_survival(
-                device, model_samples_encoder, train_loader, optimizer_samples, criterion_samples
-            )
-            val_loss, val_metrics = evaluate_survival(
-                device, model_samples_encoder, val_loader, criterion_samples
-            )
-            val_c_index = val_metrics['c_index']
-            scheduler.step(val_c_index)
-
-            history_gat['train_loss'].append(train_loss)
-            history_gat['val_loss'].append(val_loss)
-            history_gat['train_metric'].append(0.0)
-            history_gat['val_metric'].append(val_c_index)
-
-            if val_c_index > best_val_score:
-                best_val_score = val_c_index
                 gat_metrics = val_metrics
                 gat_metrics['val_loss'] = val_loss
                 best_gat_weights = {k: v.cpu().clone() for k, v in model_samples_encoder.state_dict().items()}

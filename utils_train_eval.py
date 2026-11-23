@@ -1,14 +1,25 @@
+import json
 import logging
-
-import pandas as pd
-import numpy as np
+import os
 import re
+import shutil
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
 from psutil import Process
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler, OrdinalEncoder, MultiLabelBinarizer, \
-    OneHotEncoder
+from sklearn.preprocessing import (
+    MinMaxScaler,
+    MultiLabelBinarizer,
+    OneHotEncoder,
+    OrdinalEncoder,
+    RobustScaler,
+    StandardScaler,
+)
 
 import config_file_tree
+from utils_explainability import to_rel_path
 
 """"" utility """""
 
@@ -17,7 +28,7 @@ def print_details(dataset):
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler('execution.log', mode='w'),
+            logging.FileHandler('last_execution.log', mode='w'),
             logging.StreamHandler()
         ]
     )
@@ -26,8 +37,7 @@ def print_details(dataset):
     logging.info(f'Train Dataset: {dataset}:')
     logging.info('====================')
     logging.info(f'Number of graphs: {len(dataset)}')
-    logging.info(f'Number of features: {dataset.num_features}')
-    logging.info(f"Node features names: {getattr(dataset[0], 'node_feature_names', 'Unspecified')}")
+    logging.info(f"Node features ({dataset.num_features}): {getattr(dataset[0], 'node_feature_names', 'Unspecified')}")
     logging.info(f"Node tensor shape: {dataset[0].x.shape}")
 
     logging.info(dataset[0])
@@ -46,7 +56,7 @@ def print_details(dataset):
 
 
 def get_memory_usage():
-    process: Process = Process(getpid())
+    process: Process = Process(os.getpid())
     megabytes: float = process.memory_info().rss / 1024 ** 2
     print(f"Used {megabytes:.2f} MB")
 
@@ -270,16 +280,162 @@ def pre_train_imputation_encoding(df, task, target_col = None, is_train=True, en
     return df_norm
 
 
-if __name__ == '__main__':
-    from os import path, getpid
+def _build_training_config_dict():
+    """Build a JSON-serializable snapshot of config_file_tree parameters."""
+    active_idx = list(getattr(config_file_tree, "NODE_FEATURE_INDEX", []))
+    all_names = list(getattr(config_file_tree, "NODE_FEATURE_NAMES", []))
+    task = getattr(config_file_tree, "TASK", "N/A")
+    use_meta = bool(getattr(config_file_tree, "USE_SAMPLES_METADATA", False))
+    use_clin = bool(getattr(config_file_tree, "USE_CLINICAL_DATA", False))
+    split_dir = getattr(config_file_tree, "SPLIT_DIR", "")
+    graphs_dir = getattr(config_file_tree, "PROCESSED_GRAPHS_DIR", "")
+    samples_dir = getattr(config_file_tree, "PROCESSED_SAMPLES_DIR", "")
 
-    df_samples_metadata = pd.read_csv(path.join('2_preprocessing', 'preprocessed_data', 'data_HERCULES_DECIDER', 'preprocessed_samples_metadata.tsv'), sep='\t')
-    #df_clinical = pd.read_csv(path.join('2_preprocessing', 'preprocessed_data', 'data_HERCULES_DECIDER', 'preprocessed_clinical_data.tsv'), sep='\t')
-    df_samples_metadata = df_samples_metadata[[config_file_tree.SAMPLE_TARGET_COL] + config_file_tree.METADATA_FEATURES]
-    df_new, enc, scal, imp, cat = pre_train_imputation_encoding(
-        df_samples_metadata,
-        config_file_tree.TASK,
-        config_file_tree.SAMPLE_TARGET_COL,
-        is_train=True)
+    return {
+        "DATASET_NAME": getattr(config_file_tree, "DATASET_NAME", "N/A"),
+        "TASK": task,
+        "GRAPH_EDGES_TYPE": getattr(config_file_tree, "GRAPH_EDGES_TYPE", "N/A"),
+        "SAMPLES_LEVEL_TRAIN": bool(getattr(config_file_tree, "SAMPLES_LEVEL_TRAIN", False)),
+        "PATIENTS_LEVEL_TRAIN": bool(getattr(config_file_tree, "PATIENTS_LEVEL_TRAIN", False)),
+        "FREEZE_GAT_AFTER_EPOCH": getattr(config_file_tree, "FREEZE_GAT_AFTER_EPOCH", None),
+        "RUN_PERMUTATION_TEST": bool(getattr(config_file_tree, "RUN_PERMUTATION_TEST", False)),
+        "SAMPLE_TARGET_COL": getattr(config_file_tree, "SAMPLE_TARGET_COL", "N/A"),
+        "PATIENT_TARGET_COL": getattr(config_file_tree, "PATIENT_TARGET_COL", "N/A"),
+        "TIME_COL": getattr(config_file_tree, "TIME_COL", "N/A") if task == "survival" else None,
+        "NODE_FEATURE_INDEX": active_idx,
+        "NODE_FEATURE_NAMES": all_names,
+        "ACTIVE_NODE_FEATURES": [all_names[i] for i in active_idx if i < len(all_names)],
+        "USE_SAMPLES_METADATA": use_meta,
+        "METADATA_FEATURES": list(getattr(config_file_tree, "METADATA_FEATURES", [])) if use_meta else [],
+        "USE_CLINICAL_DATA": use_clin,
+        "CLINICAL_FEATURES": list(getattr(config_file_tree, "CLINICAL_FEATURES", [])) if use_clin else [],
+        "SAMPLE_ENCODER_FOLDER": getattr(config_file_tree, "SAMPLE_ENCODER_FOLDER", "N/A"),
+        "PATIENT_ENCODER_FOLDER": getattr(config_file_tree, "PATIENT_ENCODER_FOLDER", "N/A"),
+        "SPLIT_DIR_REL": to_rel_path(split_dir) if split_dir else "",
+        "PROCESSED_GRAPHS_DIR_REL": to_rel_path(graphs_dir) if graphs_dir else "",
+        "PROCESSED_SAMPLES_DIR_REL": to_rel_path(samples_dir) if samples_dir else "",
+    }
 
-    print("breakpoint")
+
+def save_training_config_report(output_dir, patient_subdir="MIL"):
+    """
+    Save 'training_config.txt' and 'training_config.json' inside active model subdirectories
+    ('GAT' when SAMPLES_LEVEL_TRAIN=True, and `patient_subdir` when PATIENTS_LEVEL_TRAIN=True
+    and `patient_subdir` is non-empty).
+    """
+    cfg_dict = _build_training_config_dict()
+    timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cfg_dict["TIMESTAMP"] = timestamp_str
+
+    config_text = f"""================================================================================
+TRAINING RUN CONFIGURATION REPORT
+Timestamp: {timestamp_str}
+================================================================================
+
+[GENERAL CONFIGURATION]
+Dataset Name:               {cfg_dict['DATASET_NAME']}
+Task Type:                  {cfg_dict['TASK']}
+Graph Edges Topology:       {cfg_dict['GRAPH_EDGES_TYPE']}
+
+[TRAINING PHASES & PIPELINE CONTROL]
+Samples Level Train (GAT):  {cfg_dict['SAMPLES_LEVEL_TRAIN']}
+Patients Level Train (MIL): {cfg_dict['PATIENTS_LEVEL_TRAIN']}
+Freeze GAT After Epoch:     {cfg_dict['FREEZE_GAT_AFTER_EPOCH']}
+Run Permutation Test:       {cfg_dict['RUN_PERMUTATION_TEST']}
+
+[TARGET LABELS]
+Sample Target Label:        {cfg_dict['SAMPLE_TARGET_COL']}
+Patient Target Label:       {cfg_dict['PATIENT_TARGET_COL'] if cfg_dict['PATIENTS_LEVEL_TRAIN'] else 'N/A (Patient Level Disabled)'}
+Time Target Label (Cox):    {cfg_dict['TIME_COL'] if cfg_dict['TASK'] == 'survival' else 'N/A'}
+
+[GRAPH NODE FEATURES]
+Active Node Feature Indices: {cfg_dict['NODE_FEATURE_INDEX']}
+Active Node Feature Names:   {cfg_dict['ACTIVE_NODE_FEATURES']}
+
+[METADATA & CLINICAL FEATURES]
+Use Samples Metadata:       {cfg_dict['USE_SAMPLES_METADATA']}
+Metadata Features Used:     {cfg_dict['METADATA_FEATURES'] if cfg_dict['USE_SAMPLES_METADATA'] else 'None'}
+Use Patient Clinical Data:  {cfg_dict['USE_CLINICAL_DATA']}
+Clinical Features Used:     {cfg_dict['CLINICAL_FEATURES'] if cfg_dict['USE_CLINICAL_DATA'] else 'None'}
+
+[PRETRAINED CHECKPOINT PATHS]
+Pretrained Sample Encoder Folder (GAT):  {cfg_dict['SAMPLE_ENCODER_FOLDER']}
+Pretrained Patient Encoder Folder (MIL): {cfg_dict['PATIENT_ENCODER_FOLDER']}
+================================================================================
+"""
+
+    target_dirs = []
+    if cfg_dict["SAMPLES_LEVEL_TRAIN"]:
+        target_dirs.append(os.path.join(output_dir, "GAT"))
+    if cfg_dict["PATIENTS_LEVEL_TRAIN"] and patient_subdir:
+        target_dirs.append(os.path.join(output_dir, patient_subdir))
+
+    saved_paths = []
+    for t_dir in target_dirs:
+        os.makedirs(t_dir, exist_ok=True)
+        txt_path = os.path.join(t_dir, "training_config.txt")
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(config_text)
+        with open(os.path.join(t_dir, "training_config.json"), "w", encoding="utf-8") as f:
+            json.dump(cfg_dict, f, indent=4)
+        saved_paths.append(txt_path)
+        logging.info(f"Training configuration report (TXT + JSON) saved to: {t_dir}")
+
+    return (saved_paths[0] if saved_paths else None), config_text
+
+
+def handle_pretrained_gat_checkpoint(gat_pretrained_dir, gat_output_dir, config_text):
+    """
+    Clone a pre-trained GAT checkpoint folder into the run's GAT/ directory and write
+    a provenance notice ('pretrained_checkpoint_info.txt').
+    """
+    if not os.path.exists(gat_pretrained_dir):
+        logging.warning(f"Pre-trained GAT folder not found at: {gat_pretrained_dir}")
+        return
+
+    abs_src, abs_dst = os.path.abspath(gat_pretrained_dir), os.path.abspath(gat_output_dir)
+    if abs_src == abs_dst or (os.path.exists(gat_output_dir) and os.path.samefile(gat_pretrained_dir, gat_output_dir)):
+        logging.info(f"Destination GAT folder matches pre-trained folder ({gat_output_dir}). Skipping cloning.")
+        return
+
+    os.makedirs(gat_output_dir, exist_ok=True)
+    logging.info(f"Cloning pre-trained GAT checkpoint: '{gat_pretrained_dir}' -> '{gat_output_dir}'...")
+
+    for item in os.listdir(gat_pretrained_dir):
+        if item == "explained":
+            continue
+        src_item, dst_item = os.path.join(gat_pretrained_dir, item), os.path.join(gat_output_dir, item)
+        if os.path.exists(dst_item) and os.path.samefile(src_item, dst_item):
+            continue
+        if os.path.isdir(src_item):
+            if os.path.exists(dst_item):
+                shutil.rmtree(dst_item)
+            shutil.copytree(src_item, dst_item)
+        else:
+            shutil.copy2(src_item, dst_item)
+
+    # Legacy fallback if source GAT stored training_config.txt in its parent folder
+    dst_txt, dst_json = os.path.join(gat_output_dir, "training_config.txt"), os.path.join(gat_output_dir, "training_config.json")
+    if not os.path.exists(dst_txt) and not os.path.exists(dst_json):
+        legacy_txt = os.path.join(os.path.dirname(abs_src), "training_config.txt")
+        if os.path.exists(legacy_txt):
+            shutil.copy2(legacy_txt, dst_txt)
+
+    info_path = os.path.join(gat_output_dir, "pretrained_checkpoint_info.txt")
+    with open(info_path, "w", encoding="utf-8") as f:
+        f.write(
+            f"""================================================================================
+COPIED PRE-TRAINED GAT CHECKPOINT NOTICE
+================================================================================
+Status:                       COPIED FROM PRE-TRAINED MODEL (Not trained in this run)
+Original Pretrained GAT Path: {abs_src}
+Original Relative Path:       {to_rel_path(abs_src)}
+Cloning Timestamp:            {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Note:                         'training_config.json' / 'training_config.txt' in this folder
+                              reflect the original GAT pre-training configuration.
+================================================================================
+
+[DOWNSTREAM PATIENT RUN CONFIGURATION THAT IMPORTED THIS CHECKPOINT]
+{config_text}"""
+        )
+    logging.info(f"Pre-trained checkpoint notice saved to: {info_path}\n")

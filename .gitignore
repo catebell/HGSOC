@@ -8,7 +8,7 @@
 /3_samples_graph_creation/processed_graphs/
 
 /5_training/trained_models/
-/5_training/execution.log
+/5_training/*execution.log
 
 /gencode.annotation.gtf/gencode*
 /ppi_string_files/9606*

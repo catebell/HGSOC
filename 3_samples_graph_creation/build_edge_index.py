@@ -18,21 +18,21 @@ TOP_CN_GENES = 1000
 ifn_genes = ['STAT1', 'STAT2', 'IRF1', 'IRF2', 'IRF9', 'ISG15', 'CXCL10', 'CXCL11', 'CMPK2', 'IFIT1', 'IFIT3', 'OAS1', 'CDKN2A',
              'CDKN2B', 'IFNA1', 'IFNB1', 'JAK1', 'JAK2', 'MX1', 'IFIT2', 'OAS2', 'USP18', 'HLA-A', 'HLA-B', 'HLA-C', 'B2M', 'HIF1A', 'VEGFA', 'CA9', 'BRAF', 'CCNE1', 'MYC', 'KRAS', 'NF1', 'TP53', 'BRCA1', 'BRCA2', 'RAD51C', 'RAD51D']
 
-
-# FILTER PARAMETERS FOR 1ST-DEGREE NEIGHBORS
-MIN_RNA_VARIANCE = 0.0001        # Exclude neighbors with 0 or near-zero variance
-MIN_CANDIDATE_CONNECTIONS = 2   # Require neighbor to connect to at least N candidate genes (Bridge Nodes)
-
 # parameters for ppi edges
 PPI_MIN_SCORE = 0.9
 
 # parameters for hybrid ppi-copathway edges
-HYBRID_MIN_PPI_SCORE = 0.70  # Minimum physical confidence in STRING (0.70 = high confidence)
-HYBRID_MIN_KEGG_OVERLAP = 1  # At least 1 KEGG pathway shared
+HYBRID_MIN_PPI_SCORE = 0.7      # Minimum physical confidence in STRING (0.70 = high confidence)
+HYBRID_MIN_KEGG_OVERLAP = 1     # At least 1 KEGG pathway shared
+
+
+# parameters for 1st-degree neighbors
+MIN_RNA_VARIANCE = 0.001        # Exclude neighbors with 0 or near-zero variance
+MIN_CANDIDATE_CONNECTIONS = 2   # Require neighbor to connect to at least N candidate genes (Bridge Nodes)
 
 
 def _get_candidate_genes(df_expr, primary_cn_pivot, ensg_to_symbol_map):
-    """ Select top genes based on RNA expression and CNV variance plus driver genes. """
+    """ Select top genes based on RNA expression and CNV variance plus driver/specific set of genes. """
 
     common_genes = df_expr.index.intersection(primary_cn_pivot.index)
     print(f"Common Genes in expr and cn tables: {len(common_genes)}")
@@ -123,7 +123,7 @@ def _save_selected_genes_tsv(final_selected_genes, top_rna_genes_set, top_cn_gen
 
 
 def _build_ppi_edge_index(df_expr, primary_cn_pivot, ensg_to_symbol_map):
-    """ Expand candidate genes with 1st-degree PPI neighbors and save selected_genes.tsv, and build edge index. """
+    """ Expand candidate genes with 1st-degree PPI neighbors, build PPI edge index and save selected_genes.tsv. """
 
     print("\n[BUILDING GRAPH] TOPOLOGY: STRING PPI")
     common_genes, rna_variances, cn_variances, top_rna_genes_set, top_cn_genes_set, driver_genes_set, candidate_genes_set = _get_candidate_genes(
@@ -176,7 +176,7 @@ def _build_ppi_edge_index(df_expr, primary_cn_pivot, ensg_to_symbol_map):
     print(f"Neighbors after RNA variance filtering (> {MIN_RNA_VARIANCE}): {len(valid_variance_neighbors)}")
 
     # CONDITION 2: Filter neighbors by degree of connectivity to candidate genes (Bridge Nodes)
-    # Count how many UNIQUE candidate genes each neighbor is connected to
+    # Count how many unique candidate genes each neighbor is connected to
     candidate_edges_subset = ppi_candidate_edges[
         (ppi_candidate_edges['gene1'].isin(valid_variance_neighbors) & ppi_candidate_edges['gene2'].isin(
             candidate_genes_set)) |
@@ -226,91 +226,9 @@ def _build_ppi_edge_index(df_expr, primary_cn_pivot, ensg_to_symbol_map):
     return e_index, gene_to_num_idx
 
 
-def _build_omnipath_kegg_edge_index(df_expr, primary_cn_pivot, ensg_to_symbol_map):
-    print("\n[BUILDING GRAPH] TOPOLOGY: OMNIPATH (KEGG / REACTOME)")
-    try:
-        import omnipath as op
-    except ImportError:
-        raise ImportError("'omnipath' library required if GRAPH_EDGES_TYPE='omnipath_kegg'.")
-
-    common_genes, rna_variances, cn_variances, top_rna_genes_set, top_cn_genes_set, driver_genes_set, candidate_genes_set = _get_candidate_genes(
-        df_expr, primary_cn_pivot, ensg_to_symbol_map
-    )
-
-    print("Fetching interactions from OmniPath (filtering for KEGG & Reactome)...")
-    try:
-        interactions = op.interactions.AllInteractions.get(genesymbols=True)
-    except Exception:
-        interactions = op.interactions.AllInteractions.get()
-
-    kegg_interactions = interactions[interactions['sources'].str.contains('KEGG|Reactome', na=False)].copy()
-
-    symbol_to_ensg = {v: k for k, v in ensg_to_symbol_map.items()}
-    kegg_interactions['gene1'] = kegg_interactions['source_genesymbol'].map(symbol_to_ensg)
-    kegg_interactions['gene2'] = kegg_interactions['target_genesymbol'].map(symbol_to_ensg)
-
-    kegg_interactions = kegg_interactions.dropna(subset=['gene1', 'gene2'])
-    kegg_interactions = kegg_interactions[
-        kegg_interactions['gene1'].isin(common_genes) & kegg_interactions['gene2'].isin(common_genes)
-    ]
-    kegg_interactions = kegg_interactions[kegg_interactions['gene1'] != kegg_interactions['gene2']]
-
-    # 1st-degree expansion tra i geni candidati
-    candidate_edges = kegg_interactions[
-        kegg_interactions['gene1'].isin(candidate_genes_set) | kegg_interactions['gene2'].isin(candidate_genes_set)
-    ].copy()
-
-    all_neighbors = (set(candidate_edges['gene1']).union(set(candidate_edges['gene2']))) - candidate_genes_set
-    valid_variance_neighbors = {g for g in all_neighbors if rna_variances.get(g, 0.0) > MIN_RNA_VARIANCE}
-
-    candidate_edges_subset = candidate_edges[
-        (candidate_edges['gene1'].isin(valid_variance_neighbors) & candidate_edges['gene2'].isin(candidate_genes_set)) |
-        (candidate_edges['gene2'].isin(valid_variance_neighbors) & candidate_edges['gene1'].isin(candidate_genes_set))
-    ]
-
-    neighbor_conn_counts = {}
-    for _, row in candidate_edges_subset.iterrows():
-        g1, g2 = row['gene1'], row['gene2']
-        neighbor = g1 if g1 in valid_variance_neighbors else g2
-        candidate = g2 if g1 in valid_variance_neighbors else g1
-
-        if neighbor not in neighbor_conn_counts:
-            neighbor_conn_counts[neighbor] = set()
-        neighbor_conn_counts[neighbor].add(candidate)
-
-    filtered_neighbor_genes = {
-        g for g, connected_candidates in neighbor_conn_counts.items()
-        if len(connected_candidates) >= MIN_CANDIDATE_CONNECTIONS
-    }
-
-    final_selected_genes = candidate_genes_set.union(filtered_neighbor_genes)
-    _save_selected_genes_tsv(final_selected_genes, top_rna_genes_set, top_cn_genes_set, driver_genes_set, rna_variances, cn_variances, ensg_to_symbol_map)
-
-    final_edges = candidate_edges[
-        candidate_edges['gene1'].isin(final_selected_genes) & candidate_edges['gene2'].isin(final_selected_genes)
-    ].drop_duplicates(subset=['gene1', 'gene2'])
-
-    gene_to_num_idx = {gene: idx for idx, gene in enumerate(sorted(final_selected_genes))}
-
-    edge_list = []
-    for _, row in final_edges.iterrows():
-        u = gene_to_num_idx[row['gene1']]
-        v = gene_to_num_idx[row['gene2']]
-        edge_list.append((u, v))
-        # if interaction is not directed, made bidirectional
-        if not row.get('is_directed', True):
-            edge_list.append((v, u))
-
-    edge_list = list(set(edge_list))
-    e_index = torch.tensor(edge_list, dtype=torch.long).t().contiguous() if edge_list else torch.empty((2, 0), dtype=torch.long)
-
-    print(f"Genes in final graph: {len(gene_to_num_idx)}")
-    print(f"OmniPath/KEGG edges found: {e_index.size(1)}\n")
-
-    return e_index, gene_to_num_idx
-
-
 def _build_kegg_copathway_edge_index(df_expr, primary_cn_pivot, ensg_to_symbol_map):
+    """ Build edge index based on functional co-pathways (KEGG database) and save selected_genes.tsv. """
+
     print("\n[BUILDING GRAPH] TOPOLOGY: KEGG CO-PATHWAY OVERLAP")
     try:
         import gseapy as gp
@@ -356,23 +274,20 @@ def _build_kegg_copathway_edge_index(df_expr, primary_cn_pivot, ensg_to_symbol_m
 
 
 def _build_hybrid_ppi_kegg_edge_index(df_expr, primary_cn_pivot, ensg_to_symbol_map):
-    """
-    Costruisce una topologia ibrida combinando STRING PPI (Interazioni Proteiche Fisiche)
-    e KEGG Co-pathway (Co-appartenenza Funzionale).
-    Un arco viene incluso solo se i due geni interagiscono fisicamente E condividono almeno un pathway KEGG.
-    """
+    """ Build hybrid edge topology combining STRING PPI (physical protein interactions) and KEGG co-pathways (functional relation).
+    Edge exists if 2 genes interacts physically and share at least 1 pathway. """
     print("\n[BUILDING GRAPH] TOPOLOGY: HYBRID (STRING PPI ∩ KEGG CO-PATHWAY)")
     try:
         import gseapy as gp
     except ImportError:
         raise ImportError("'gseapy' library required for hybrid topology.")
 
-    # 1. Selezione geni candidati ed espansione con vicini di 1° grado via PPI
+    # get candidate genes and their 1st degree neighbors via PPI
     common_genes, rna_variances, cn_variances, top_rna_genes_set, top_cn_genes_set, driver_genes_set, candidate_genes_set = _get_candidate_genes(
         df_expr, primary_cn_pivot, ensg_to_symbol_map
     )
 
-    print("Caricamento interazioni da STRING PPI...")
+    print("Loading STRING PPI interactions...")
     df_protein_gene = pd.read_csv(path_protein_gene_file, sep='\t', usecols=['#string_protein_id', 'alias'], dtype={
         '#string_protein_id': 'category', 'alias': 'string'
     }).rename(columns={'#string_protein_id': 'protein_id', 'alias': 'gene_id'})
@@ -383,7 +298,7 @@ def _build_hybrid_ppi_kegg_edge_index(df_expr, primary_cn_pivot, ensg_to_symbol_
     df_ppi['combined_score'] = df_ppi['combined_score'] / 1000.0
 
     df_ppi = df_ppi[df_ppi['combined_score'] >= HYBRID_MIN_PPI_SCORE].copy()
-    print(f"Mantenute interazioni PPI con combined_score >= {HYBRID_MIN_PPI_SCORE}")
+    print(f"Kept PPI interactions with combined_score >= {HYBRID_MIN_PPI_SCORE}")
 
     df_protein_gene_filtered = df_protein_gene[df_protein_gene['gene_id'].isin(common_genes)].dropna().drop_duplicates(
         subset=['gene_id', 'protein_id']).reset_index(drop=True)
@@ -400,7 +315,6 @@ def _build_hybrid_ppi_kegg_edge_index(df_expr, primary_cn_pivot, ensg_to_symbol_
     ppi_candidate_edges = ppi_candidate_edges.dropna(subset=['gene1', 'gene2'])
     ppi_candidate_edges = ppi_candidate_edges[ppi_candidate_edges['gene1'] != ppi_candidate_edges['gene2']]
 
-    # 2. Espansione condizionale dei vicini di 1° grado (Bridge Nodes)
     all_neighbors = (set(ppi_candidate_edges['gene1']).union(set(ppi_candidate_edges['gene2']))) - candidate_genes_set
     valid_variance_neighbors = {g for g in all_neighbors if rna_variances.get(g, 0.0) > MIN_RNA_VARIANCE}
 
@@ -430,12 +344,12 @@ def _build_hybrid_ppi_kegg_edge_index(df_expr, primary_cn_pivot, ensg_to_symbol_
     _save_selected_genes_tsv(final_selected_genes, top_rna_genes_set, top_cn_genes_set, driver_genes_set, rna_variances,
                              cn_variances, ensg_to_symbol_map)
 
-    # 3. Mappatura Geni KEGG Pathway
-    print("Estrazione pathway KEGG da GSEAPy...")
+    # map genes to KEGG pathways
+    print("Extracting KEGG pathways form GSEAPy...")
     kegg_db = gp.get_library(name='KEGG_2021_Human', organism='Human')
     symbol_to_ensg = {v: k for k, v in ensg_to_symbol_map.items()}
 
-    # Costruzione set di coppie di geni che condividono almeno un pathway KEGG
+    # building sets of genes pairs sharing at least one KEGG pathway
     from collections import defaultdict
     shared_kegg_pathways = defaultdict(int)
 
@@ -448,7 +362,7 @@ def _build_hybrid_ppi_kegg_edge_index(df_expr, primary_cn_pivot, ensg_to_symbol_
                 pair = (min(g1, g2), max(g1, g2))
                 shared_kegg_pathways[pair] += 1
 
-    # 4. Intersezione tra Edges PPI e Co-appartenenza KEGG
+    # intersection
     final_ppi_edges = ppi_candidate_edges[
         ppi_candidate_edges['gene1'].isin(final_selected_genes) & ppi_candidate_edges['gene2'].isin(
             final_selected_genes)
@@ -461,11 +375,11 @@ def _build_hybrid_ppi_kegg_edge_index(df_expr, primary_cn_pivot, ensg_to_symbol_
         g1, g2 = row['gene1'], row['gene2']
         pair = (min(g1, g2), max(g1, g2))
 
-        # Filtro d'intersezione ibrido: Deve essere sia un PPI sia condividere pathway KEGG
+        # hybrid filter
         if shared_kegg_pathways.get(pair, 0) >= HYBRID_MIN_KEGG_OVERLAP:
             u, v = gene_to_num_idx[g1], gene_to_num_idx[g2]
             hybrid_edge_list.append((u, v))
-            hybrid_edge_list.append((v, u))  # Rende il grafo non orientato
+            hybrid_edge_list.append((v, u))  # to make graph undirected
 
     hybrid_edge_list = list(set(hybrid_edge_list))
 
@@ -474,22 +388,20 @@ def _build_hybrid_ppi_kegg_edge_index(df_expr, primary_cn_pivot, ensg_to_symbol_
     else:
         e_index = torch.empty((2, 0), dtype=torch.long)
 
-    print(f"Geni nel grafo finale: {len(gene_to_num_idx)}")
-    print(f"Archi Ibridi (PPI ∩ KEGG) trovati: {e_index.size(1)}\n")
+    print(f"Final genes in graph: {len(gene_to_num_idx)}")
+    print(f"Hybrid edges (PPI ∩ KEGG) found: {e_index.size(1)}\n")
 
     return e_index, gene_to_num_idx
 
 
 def build_edge_index(df_expr, primary_cn_pivot, ensg_to_symbol_map):
     """
-    Dispatcher function that builds edge_index for PyTorch Geometric getting topology from config_file_tree.GRAPH_EDGES_TYPE ('ppi', 'omnipath_kegg', 'kegg_copathway').
+    Dispatcher function that builds edge_index for PyTorch Geometric, getting topology from project config file.
     """
     edge_type = str(getattr(config_file_tree, 'GRAPH_EDGES_TYPE', 'ppi')).lower().strip()
 
     if edge_type in ['ppi', 'string']:
         return _build_ppi_edge_index(df_expr, primary_cn_pivot, ensg_to_symbol_map)
-    elif edge_type in ['omnipath_kegg', 'omnipath']:
-        return _build_omnipath_kegg_edge_index(df_expr, primary_cn_pivot, ensg_to_symbol_map)
     elif edge_type in ['kegg_copathway', 'kegg_co_pathway', 'kegg']:
         return _build_kegg_copathway_edge_index(df_expr, primary_cn_pivot, ensg_to_symbol_map)
     elif edge_type in ['hybrid', 'hybrid_ppi_kegg', 'ppi_kegg']:

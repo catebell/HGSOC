@@ -5,8 +5,7 @@ import torch
 from numpy import column_stack
 from torch import tensor, save
 from torch_geometric.data import Data
-from pandas import read_csv, DataFrame, concat
-from torch_geometric.transforms import VirtualNode
+from pandas import read_csv, DataFrame
 from tqdm import tqdm
 
 import PCA
@@ -14,7 +13,7 @@ import config_file_tree
 from build_edge_index import build_edge_index
 
 """"" Data conversion in PyTorch Geometric Data objects that will be passed to the GNN.
-Each graph (Data) will represent a single tissue (its genes = nodes, ppi = edges, expression values = node features).
+Each graph (Data) will represent a single tissue (genes = nodes, ppi = edges, expr. values = node features).
 Node features vector x layout:
 see config_file_tree.NODE_FEATURE_NAMES:
 - Feature 0: Gene Expression
@@ -23,6 +22,7 @@ see config_file_tree.NODE_FEATURE_NAMES:
 - Feature 3: nMinor
 - Feature 4: Loh
 - Feature 5: breaksInGene
+- Feature 6: mutation_anyP
 """""
 
 
@@ -31,6 +31,7 @@ see config_file_tree.NODE_FEATURE_NAMES:
 preprocessed_dir = config_file_tree.PREPROCESSED_DATA_DIR
 preprocessed_expr_matrix_filepath = path.join(preprocessed_dir, 'preprocessed_bulk_expr.tsv')
 preprocessed_cn_filepath = path.join(preprocessed_dir, 'preprocessed_cn.tsv')
+preprocessed_sv_filepath = path.join(preprocessed_dir, 'preprocessed_sv_data.tsv')
 preprocessed_metadata_filepath = path.join(preprocessed_dir, 'preprocessed_samples_metadata.tsv')
 preprocessed_clinical_filepath = path.join(preprocessed_dir, 'preprocessed_clinical_data.tsv')
 
@@ -41,9 +42,6 @@ output_graphs_dir = config_file_tree.PROCESSED_GRAPHS_DIR
 
 output_selected_genes_filepath = path.join(output_dir, "selected_genes.tsv")
 output_metadata_filepath = path.join(output_dir, "associated_metadata.tsv")
-
-TOP_RNA_GENES = 2500
-TOP_CN_GENES = 1000
 
 CNV_FEATURE_COLS = ['log2CopyNumber', 'nMajor', 'nMinor', 'Loh', 'breaksInGene']
 
@@ -70,32 +68,16 @@ def filter_tissues(df_metadata, clinical_patients):
 
     return df_metadata
 
-'''def filter_tissues(df_metadata, clinical_patients):
-    """ Exclude some samples based on their features values. """
+def filter_sv_patients(df_clinical, df_sv):
+    """ Exclude patients that do NOT appear in the SV/mutation data file. """
+    if df_sv is None or 'patient' not in df_sv.columns:
+        return df_clinical
 
-    n_before = len(df_metadata)
-    df_metadata = df_metadata[df_metadata['patient_id'].isin(clinical_patients)]
-    print(f"Discarded {n_before - len(df_metadata)} samples with patient_id not appearing in clinical file.")
-
-    # filter based on phase label
-    if 'phase_label' in df_metadata.columns:
-        n_before = len(df_metadata)
-        df_metadata = df_metadata[df_metadata['phase_label'] == 'Primary']
-        print(f"Discarded {n_before - len(df_metadata)} samples with phase_label != 'Primary' (Interval, Relapse).")
-
-    # filter based on class of sample
-    if 'sample_class' in df_metadata.columns:
-        n_before = len(df_metadata)
-        df_metadata = df_metadata[df_metadata['sample_class'] == 'BulkTissue']
-        print(f"Discarded {n_before - len(df_metadata)} samples with sample_class != 'BulkTissue' (CellLines, OrganoidLines, ...).")
-
-    # filter based on treatment
-    if 'treatment' in df_metadata.columns:
-        n_before = len(df_metadata)
-        df_metadata = df_metadata[df_metadata['treatment'] == 'Untreated']
-        print(f"Discarded {n_before - len(df_metadata)} samples with treatment != 'Untreated'.")
-
-    return df_metadata'''
+    n_before = len(df_clinical)
+    sv_patients = set(df_sv['patient'].astype(str).str.strip().unique())
+    df_clinical = df_clinical[df_clinical['patient_id'].astype(str).str.strip().isin(sv_patients)].copy()
+    print(f"[FILTER-SV] Discarded {n_before - len(df_clinical)} patients missing from SV/mutation data file.")
+    return df_clinical
 
 
 def clean_cnv_outliers(cn_pivots, df_expr, df_metadata, primary_feat='log2CopyNumber'):
@@ -123,7 +105,7 @@ def clean_cnv_outliers(cn_pivots, df_expr, df_metadata, primary_feat='log2CopyNu
     return cn_pivots, df_expr, df_metadata
 
 
-def generate_all_graphs(df_expr, cn_pivots, df_metadata, gene_id_to_symbol):
+def generate_all_graphs(df_expr, cn_pivots, df_metadata, ensg_to_symbol, df_sv=None):
     """ Build PyG graph objects storing multi-feature node tensors x, adding a Virtual Node for whole message passing. """
     print("Extracting edge index...")
     edge_index, gene_to_idx = build_edge_index(df_expr, cn_pivots['log2CopyNumber'], ensg_to_symbol)
@@ -145,8 +127,27 @@ def generate_all_graphs(df_expr, cn_pivots, df_metadata, gene_id_to_symbol):
     df_gene_mapping.to_csv(gene_mapping_filepath, sep='\t', index=False)
     print(f"Saved gene node mapping reference to: '{gene_mapping_filepath}' (Shape: {df_gene_mapping.shape})\n")
 
+    # Map Patient -> Mutated Genes (anyP == True)
+    if df_sv is not None and 'patient' in df_sv.columns and 'gene_name' in df_sv.columns:
+        # Only rows where anyP == True
+        mask_true = df_sv['anyP'].astype(str).str.upper().isin(['TRUE', '1'])
+        df_sv_true = df_sv[mask_true]
+
+        patient_mutated_genes = (
+            df_sv_true.groupby(df_sv_true['patient'].astype(str).str.strip())['gene_name']
+            .apply(set)
+            .to_dict()
+        )
+        print(f"[SV DATA] Mapped mutations (anyP=True) for {len(patient_mutated_genes)} patients.")
+        use_sv_feature = True
+    else:
+        patient_mutated_genes = {}
+        use_sv_feature = False
+        print("[SV DATA] Proceeding WITHOUT 'mutation_anyP' feature.")
+
 
     """"" aligning genes and samples between tables """""
+
     primary_cn = list(cn_pivots.values())[0]  # reference feature for cn
     matched_samples = [s for s in df_expr.columns if s in primary_cn.columns]
     print(f"\n[ALIGNMENT] Valid samples matched (RNA <-> CNV): {len(matched_samples)}")
@@ -170,6 +171,9 @@ def generate_all_graphs(df_expr, cn_pivots, df_metadata, gene_id_to_symbol):
         print(f"    Aligned CN matrix of feature {feature} shape: {cn_aligned_dict[feature].shape}\n")
 
     feature_names = ['gene_expression'] + list(cn_aligned_dict.keys())
+    if df_sv is not None:
+        feature_names.append('mutation_anyP')
+
     num_features = len(feature_names)
 
     print("Generating PyTorch Geometric graph objects...")
@@ -180,7 +184,17 @@ def generate_all_graphs(df_expr, cn_pivots, df_metadata, gene_id_to_symbol):
         for feature in cn_aligned_dict:  # cn related values
             feature_arrays.append(cn_aligned_dict[feature][sample_id].values)
 
-        # concatenating feature vectors for single sample -> shape: [Num_Genes, 2]
+        if use_sv_feature:
+            patient_id = str(df_metadata.loc[sample_id, 'patient_id']).strip()
+            mutated_symbols = patient_mutated_genes.get(patient_id, set())
+
+            sv_array = [
+                1.0 if ensg_to_symbol.get(g) in mutated_symbols else 0.0
+                for g in genes_ordered
+            ]
+            feature_arrays.append(sv_array)
+
+        # concatenating feature vectors for single sample -> shape: [Num_Genes, Num_Features]
         node_features = column_stack(feature_arrays)
         x = tensor(node_features, dtype=torch.float32)
 
@@ -194,7 +208,7 @@ def generate_all_graphs(df_expr, cn_pivots, df_metadata, gene_id_to_symbol):
         save(graph, save_path)
 
     print(f"Save completed for {len(matched_samples)} graphs in {output_graphs_dir}\n")
-    print(f"Node feature tensor shape with Virtual Node (x): [{len(genes_ordered)}, {num_features}]\n")
+    print(f"Node feature tensor shape: [{len(genes_ordered)}, {num_features}]\n")
     print(f"Features mapped to node tensor: {feature_names}\n")
 
     df_metadata = df_metadata.loc[matched_samples,:]
@@ -212,7 +226,22 @@ if __name__ == "__main__":
     metadata_table = read_csv(preprocessed_metadata_filepath, sep='\t', index_col=0)
     clinical_table = read_csv(preprocessed_clinical_filepath, sep='\t')
 
+    print("\nChecking preprocessed SV/Mutation file...")
+    if path.exists(preprocessed_sv_filepath):
+        print(f"Loading preprocessed SV data from '{preprocessed_sv_filepath}'...")
+        df_sv = read_csv(preprocessed_sv_filepath, sep='\t')
+        print(f"    Loaded SV data shape: {df_sv.shape} ({df_sv['patient'].nunique()} unique patients in file)")
+    else:
+        df_sv = None
+        print(f"[WARNING] SV data file not found at '{preprocessed_sv_filepath}'.")
+        print("          Proceeding WITHOUT 'mutation_anyP' feature and WITHOUT SV patient filtering.\n")
+
     clinical_table_filtered = filter_patients(clinical_table)
+
+    # TODO non serve? Al momento non usato perchè perggiorava, in ogni caso non si sta usando la feature 6
+    '''if df_sv is not None:
+        clinical_table_filtered = filter_sv_patients(clinical_table_filtered, df_sv)'''
+
     valid_patients = clinical_table_filtered['patient_id']
     metadata_table_filtered = filter_tissues(metadata_table, valid_patients)
     valid_sample_ids = metadata_table_filtered.index.tolist()
@@ -249,7 +278,7 @@ if __name__ == "__main__":
     )
 
     ensg_to_symbol = df_cn.groupby('gene_id', observed=True)['symbol'].first().to_dict()
-    used_expr_df, used_cn_df = generate_all_graphs(expr_table_filtered, cn_pivots, metadata_table_filtered, ensg_to_symbol)
+    used_expr_df, used_cn_df = generate_all_graphs(expr_table_filtered, cn_pivots, metadata_table_filtered, ensg_to_symbol, df_sv=df_sv)
 
     if config_file_tree.RUN_PCA:
         out_dir_pca = path.join('processed_graphs', "PCA_data_used")

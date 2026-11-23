@@ -2,7 +2,6 @@ import os
 
 import torch
 from torch_geometric.data import Dataset
-from torch_geometric.transforms import VirtualNode
 
 import config_file_tree
 

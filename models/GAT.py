@@ -7,7 +7,7 @@ from torch_geometric.nn import GATv2Conv, BatchNorm, AttentionalAggregation, Gra
 
 
 class GAT(torch.nn.Module):
-    def __init__(self, num_node_features, num_classes, num_nodes, gene_emb_dim=4, hidden_channels=64, heads=2, dropout=0.5, num_sample_features=0, num_edge_features=0):
+    def __init__(self, num_node_features, num_classes, num_nodes, gene_emb_dim=4, hidden_channels=64, heads=2, dropout=0.3, num_sample_features=0, num_edge_features=0):
         super(GAT, self).__init__()
 
         self.num_nodes = num_nodes

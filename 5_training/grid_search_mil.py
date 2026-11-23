@@ -16,7 +16,7 @@ import config_file_tree
 from PatientBagDataset import PatientBagDataset
 from models.GAT import GAT
 from models.PatientMIL_Enhanced_ModalityDropout import PatientMILModel
-from train_eval_utils import pre_train_imputation_encoding, print_details
+from utils_train_eval import pre_train_imputation_encoding
 from PatientSampleDataset import PatientSampleDataset, update_graphs_metadata
 from train_functions import train_epoch_mil, evaluate_mil, save_learning_curves
 
@@ -189,7 +189,7 @@ if os.path.exists(node_scaler_file):
         scaled_x = node_scaler.transform(graph.x_raw.numpy())
         graph.x = torch.tensor(scaled_x, dtype=torch.float32)
 else:
-    logging.warning(f"Node scaler not found in {gat_dir}. Fitting in-fold StandardScaler.")
+    logging.warning(f"Node scaler not found in {gat_dir}.")
 
 # 2. Pre-processori Metadati Campione GAT
 num_sample_features = 0
@@ -344,7 +344,7 @@ for cfg_idx, params in enumerate(combinations):
         for epoch in range(1, epochs + 1):
             train_loss, train_acc = train_epoch_mil(device, model_patient_encoder, patients_train_loader,
                                                     optimizer_patients, criterion_patients)
-            val_loss, val_m = evaluate_mil(device, model_patient_encoder, patients_val_loader, criterion_patients)
+            val_loss, val_m, _ = evaluate_mil(device, model_patient_encoder, patients_val_loader, criterion_patients)
 
             scheduler_patients.step()
 

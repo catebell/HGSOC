@@ -3,6 +3,8 @@ import torch.nn as nn
 from torch_geometric.nn import global_add_pool, global_max_pool
 from torch_geometric.utils import softmax
 
+import config_file_tree
+
 """ AttentionPooling + MaxPooling, Modality Dropout on node features """
 
 
@@ -49,7 +51,6 @@ class PatientMILModel(nn.Module):
     def __init__(
             self,
             sample_encoder,
-            num_node_features=2,
             num_classes=2,
             num_tissue_classes=3,
             tissue_emb_dim=16,
@@ -76,16 +77,22 @@ class PatientMILModel(nn.Module):
         total_sample_dim = sample_emb_dim + (tissue_emb_dim if tissue_emb_dim > 0 else 0)
 
         # 1. Sample Projection Layer: adatta le feature GAT al task MIL del paziente
-        self.sample_projector = nn.Sequential(
-            nn.Linear(total_sample_dim, proj_dim),
-            nn.LayerNorm(proj_dim),
-            nn.GELU(),
-            nn.Dropout(dropout)
-        )
+        if config_file_tree.PATIENT_TARGET_COL == 'chemo_refractory_target':
+            self.sample_projector = nn.Sequential(
+                nn.Linear(in_features=total_sample_dim, out_features=16),
+                nn.LayerNorm(16),
+                nn.GELU(),
+                nn.Dropout(p=0.4)
+            )
+        else:
+            self.sample_projector = nn.Sequential(
+                nn.Linear(total_sample_dim, proj_dim),
+                nn.LayerNorm(proj_dim),
+                nn.GELU(),
+                nn.Dropout(dropout)
+            )
 
-        # 2. Dual-Path Pooling (Attention + Max produce una dimensione pari a proj_dim * 2)
         self.pooling = DualPathAttentionPooling(in_features=proj_dim, hidden_dim=pooling_hidden_dim, dropout=dropout)
-
         pooled_dim = proj_dim * 2
 
         # 3. Normalizzazione separata per feature cliniche e di bag
@@ -99,12 +106,20 @@ class PatientMILModel(nn.Module):
         total_patient_dim = pooled_dim + num_clinical_features
 
         # 4. Classificatore finale compatto
-        self.classifier = nn.Sequential(
-            nn.Linear(total_patient_dim, classifier_hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(classifier_hidden_dim, num_classes)
-        )
+        if config_file_tree.PATIENT_TARGET_COL == 'chemo_refractory_target':
+            self.classifier = nn.Sequential(
+                nn.Linear(in_features=total_patient_dim, out_features=16),
+                nn.GELU(),
+                nn.Dropout(p=0.5),
+                nn.Linear(in_features=16, out_features=num_classes)
+            )
+        else:
+            self.classifier = nn.Sequential(
+                nn.Linear(total_patient_dim, classifier_hidden_dim),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(classifier_hidden_dim, num_classes)
+            )
 
     def forward(self, patient_batch):
         # ----------------------------------------------------
